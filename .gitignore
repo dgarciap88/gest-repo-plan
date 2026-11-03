@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secretos y configuración local
+.env
+
+# Datos de ejecución (BD, logs, workspaces, adjuntos)
+data/
+
+# Frontend
+web/node_modules/
+web/dist/
