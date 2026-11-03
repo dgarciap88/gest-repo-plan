@@ -65,7 +65,7 @@ Si se cancela un run después del push quedan rama o PR sueltos. Nodos de limpie
 
 ## 4. Control y operación
 
-- **Presupuesto y parada de emergencia — B:** límites de coste, tokens y tiempo por run y globales; botón "pausar todo" que no lance nada nuevo.
+- **Presupuesto y parada de emergencia — B:** límites de coste, tokens y tiempo por run y globales; botón "pausar todo" que no lance nada nuevo. *(Los presupuestos por invocación y por run se han promovido al hito Bootstrap, ver DESIGN.md 10.1; aquí queda el botón de parada y los límites globales avanzados.)*
 - **Modo sandbox para desarrollar planes — B:** ejecuta el flujo real con agentes, pero los nodos externos se simulan (registran lo que harían). Distinto del `dry-run` del grafo.
 - **Arranque en Windows — C:** `gestplan serve`, parada limpia (los nodos en marcha quedan `interrupted`), autoarranque opcional.
 - **Backup de la base de datos y migraciones al actualizar — C.**

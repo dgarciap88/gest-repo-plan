@@ -178,7 +178,7 @@ Reglas:
 1. Un nodo pasa a `ready` cuando se cumple su `join` sobre las aristas entrantes: una arista "dispara" cuando su nodo origen emite exactamente ese evento.
 2. **Propagación de `skipped`:** si todas las aristas entrantes de un nodo están "muertas" (origen terminado con otro evento, o skipped), el nodo pasa a `skipped` y propaga. Evita joins que esperan para siempre.
 3. **Join `any`** permite converger ramas de un `route`.
-4. **Ciclos:** las aristas de retorno se detectan por DFS. Cada nodo dentro de un ciclo exige `max_attempts` (salvo ciclos controlados por un `ia_agent_validator`, cuyo `max_retries` ya acota el bucle). Cada re-ejecución crea un nuevo intento (`attempt+1`); superado el máximo, el nodo emite `failed` (o el evento `max_attempts_reached` si está conectado).
+4. **Ciclos:** las aristas de retorno se detectan por DFS. Cada nodo dentro de un ciclo exige `max_attempts` (salvo ciclos controlados por un `ia_agent_validator`, cuyo `max_retries` ya acota el bucle). **Criterio implementado en el validador:** un nodo está *acotado* si tiene `max_attempts` o si es el destino del evento `changes_requested` de un validador (el motor le deriva `max_retries + 1` ejecuciones); un ciclo es válido si **toda vuelta del ciclo pasa por al menos un nodo acotado** (quitando los nodos acotados no debe quedar ningún ciclo). Cada re-ejecución crea un nuevo intento (`attempt+1`); superado el máximo, el nodo emite `failed` (o el evento `max_attempts_reached` si está conectado).
 5. **Evento sin arista:** si un nodo emite un evento sin arista de salida, se aplica `on_unhandled_failure` si es de fallo (`fail_run` | `skip_dependents`); si no es de fallo, el camino simplemente termina.
 6. **Fin del run:** cuando no quedan nodos `ready/running/waiting`. Resultado `succeeded` si ningún nodo quedó en `failed/cancelled/interrupted`.
 
@@ -397,7 +397,33 @@ Lo que esto nos enseña y cómo se refleja en el diseño:
 ```
 Los valores de `model`, `agent` y `skill` son libres (los define quien escribe el plan); el catálogo los documenta como cadenas. Ajustes globales (`.env`/ajustes): ruta de `copilot`, `claude`, y directorios de agentes/skills/instrucciones por defecto (`~/.copilot/...`, resueltos por usuario, no fijos).
 
-**Claude (equivalente):** modo no interactivo (`claude -p`), `--output-format json`, `--add-dir`, `--session-id`/`--resume`, `--model`, `--permission-mode` o `--allowedTools` en lugar de saltarse permisos. Las flags exactas se comprueban con `claude --help` al implementar el adaptador.
+**Adaptador de Claude (Claude Code 2.1.317, comprobado con `claude --help` y una prueba real).**
+
+Es un `.exe` nativo (`C:\Users\dani8\.local\bin\claude.exe`), así que no tiene los problemas de `.cmd`/`.ps1` de Copilot. Prueba realizada: `prompt | claude -p --output-format json --no-session-persistence --max-budget-usd 0.10 --permission-mode dontAsk` → código de salida 0, autenticación válida en modo no interactivo y una respuesta JSON de un solo objeto.
+
+| Necesidad | Flag de Claude |
+|---|---|
+| Modo no interactivo | `-p` / `--print`. El prompt entra **por stdin** (no por argumento), así que `prompt.md` se canaliza sin límites de longitud ni escapado |
+| Salida | `--output-format json` → un objeto con `result` (texto), `is_error`, `subtype`, `session_id`, `total_cost_usd`, `usage` (tokens), `num_turns`, `permission_denials`, `modelUsage`. Esos campos alimentan **tokens/coste/duración** de la auditoría sin parsear texto libre. `stream-json` queda para streaming en vivo a la UI |
+| Salida estructurada | `--json-schema <schema>` (solo con `-p`): validación del schema por el propio CLI. Se usa con el `OutputsModel` del nodo; el adaptador guarda el resultado como `result.json` para que sea idéntico al flujo de Copilot |
+| Agente de reglas | `--agent <nombre>` (y `--agents <json>` para definirlos inline) |
+| Modelo / esfuerzo | `--model`, `--effort low\|medium\|high\|xhigh\|max`, `--fallback-model` |
+| Directorios | `--add-dir <dirs...>` (el workspace es el `cwd`) |
+| Sesión | `--session-id <uuid>` (UUID determinista, igual que Copilot), `--resume <id>` y `--fork-session`. **No** usar `--no-session-persistence` si se quiere `session_mode: continue` |
+| Permisos sin preguntar | `--permission-mode acceptEdits` (o `dontAsk`) + `--allowedTools` / `--disallowedTools` + `--permission-prompts none` (lo que requeriría confirmación se deniega solo). Se evita `--dangerously-skip-permissions`/`bypassPermissions` salvo petición explícita en el plan |
+| Presupuesto | `--max-budget-usd` → implementa el `max_cost` por invocación del bucle agente/validador |
+| Validador de solo lectura | `--tools "Read,Grep,Glob"` y/o `--permission-mode plan` (o `--restricted`, que además confina las herramientas de fichero a los directorios de trabajo) |
+| Prompt de sistema | `--append-system-prompt`: candidato para la capa 1 (preámbulo del sistema) en lugar de ir dentro de `prompt.md` |
+| Ajustes y descubrimiento | `--setting-sources user,project,local`, `--settings <fichero-o-json>`, `--disable-slash-commands`, `--safe-mode` |
+
+Puntos a tener en cuenta:
+- **Carga de configuración del usuario:** en la prueba, una llamada trivial leyó ~37 000 tokens de contexto (coste ≈ 0,044 USD) porque Claude carga la configuración global (`~/.claude`: CLAUDE.md, skills, plugins). Para runs reproducibles y baratos, el adaptador fija qué fuentes se cargan (`--setting-sources`) y el plan puede pedir `project` únicamente. `--bare` queda descartado por ahora: exige `ANTHROPIC_API_KEY` y no lee el login por OAuth.
+- **Autenticación:** el CLI debe estar logado de antemano (`claude auth`). Existe `claude setup-token` para un token de larga duración (requiere suscripción); su uso en el motor queda por verificar.
+- **Commits sin coautoría de IA:** el agente no commitea (lo hace `git.commit`), pero si algún nodo permitiera commits de Claude habría que anular la atribución automática por configuración (el nombre exacto del ajuste está por verificar).
+- La **versión del CLI** (`claude --version`) se guarda en cada invocación auditada.
+- `claude doctor` es útil para `gestplan doctor`.
+
+**Copilot:** en esta máquina `copilot` resuelve a `...\AppData\Roaming\npm\copilot.ps1` (GitHub Copilot CLI 1.0.105). El adaptador debe preferir `copilot.cmd` (o el ejecutable real) frente al `.ps1`, y ejecutarlo sin `shell=True`.
 
 #### Bucle agente ↔ validador (reintentos)
 
@@ -634,6 +660,49 @@ Notas:
 - **Esperas externas:** nodos `waiting_external` registran en `wait_registry` y un ticker revisa `next_check_at`; no consumen hilos.
 - **Eventos hacia la UI:** SSE (`/api/events`) con transiciones de nodo/run y líneas de log.
 - **Concurrencia de runs:** varios runs a la vez; el límite global protege costes y disco.
+
+---
+
+### 10.1 Control de costes y selección de modelos
+
+**Principio: barato por defecto, escalar solo de forma explícita y medirlo todo.**
+
+**Medidas reales** (Claude Code 2.1.317, llamada trivial "responde OK", una sola ejecución cada una; la caché de prompts altera el coste, así que son orientativas):
+
+| Prueba | Modelo | Coste |
+|---|---|---|
+| A · config global | `claude-sonnet-5-5` | 0,0409 USD |
+| B · config global | `claude-haiku-5-5` | 0,0025 USD (≈ 16× menos que A) |
+| C · solo ajustes de proyecto, sin slash commands | `claude-haiku-5-5` | 0,0071 USD (escritura de caché nueva) |
+| D · como C + `--effort low`, caché ya caliente | `claude-haiku-5-5` | 0,0007 USD |
+
+Conclusiones: (1) **el modelo es la palanca principal**; (2) el contexto base (~35 000 tokens: prompt de sistema y herramientas del propio Claude Code) **no se elimina** limitando `--setting-sources` (ahorra ~3 000 tokens); (3) **la caché de prompts importa**: llamadas con el mismo prefijo (mismas flags, mismo prompt de sistema, misma sesión) son mucho más baratas.
+
+**Niveles de modelo (`model_tier`)**
+- Los planes piden un **nivel**, no un nombre de modelo: `cheap | standard | premium`. Los nombres concretos se resuelven por proveedor en los ajustes (`models`), de modo que un cambio de modelo no obliga a tocar los planes. Valores iniciales para Claude: `cheap = claude-haiku-5-5`, `standard = claude-sonnet-5-5`, `premium = claude-opus-5-5`. Los de Copilot los define el usuario (no verificados).
+- **Por defecto `cheap`** en todos los nodos de IA.
+- **Tope `max_model_tier`** en los ajustes (por defecto `standard`): un plan que pida `premium` no valida hasta que el usuario lo habilite. Igual que `timeout_cap` y `validator_max_retries_cap`, impide que una IA diseñadora gaste de más. Un `model` explícito solo se acepta si está en `allowed_models`.
+- **Escalado en reintentos** (`model_tier: ["cheap", "standard"]`): el primer intento usa el nivel barato y, si el validador devuelve cambios o fallan los tests, los siguientes intentos suben de nivel. Por defecto, sin escalado.
+- **Esfuerzo (`effort`)** por defecto `low` en `cheap` y `medium` en `standard`; solo se sube de forma explícita.
+
+**Presupuestos**
+- **Por invocación:** `max_cost` → `--max-budget-usd` en Claude. En Copilot, que no lo expone, se limita con timeout y nº de rondas.
+- **Por nodo y por run:** `settings.run_budget_usd`. **Global diario:** `daily_budget_usd`.
+- Al superar un límite, el nodo emite **`budget_exceeded`**; sin arista, el run pasa a `waiting` y la UI pide al usuario continuar (con un nuevo tope) o parar.
+- El coste se guarda por invocación (`invocations.cost`). Claude lo devuelve en `total_cost_usd`; para Copilot, si no hay métrica, se marca "no medido".
+
+**Reducir gasto sin perder calidad**
+- **Primero lo determinista:** `run_command` (tests, lint) antes del validador; el validador de IA solo corre si los tests pasan.
+- **Prompts pequeños:** solo las secciones del ticket y el diff necesarios, no el repositorio entero; el agente recibe la lista de ficheros relevantes cuando se conoce.
+- **Reutilizar caché:** `session_mode: continue`, y flags y preámbulo idénticos entre llamadas del mismo run.
+- **Cortar pronto:** `max_retries` bajo, `no_progress` y presupuesto por bucle.
+- **Validador de solo lectura** con herramientas limitadas (consume menos al no explorar ni editar).
+- La caché de prompts de Claude tiene una validez de ~1 h en esta configuración: encadenar rondas seguidas es más barato que espaciarlas.
+
+**Visibilidad**
+- Coste por invocación, nodo y run en el panel del nodo y en el dashboard (KPIs de gasto del día y del run); comando `gestplan cost [--run <id>]`.
+
+**Equilibrio:** los modelos baratos fallan más en tareas difíciles. Se compensa con el validador cruzado, los tests reales y el escalado de nivel opcional; el bootstrap usa `cheap` salvo que una tarea concreta pida `standard`.
 
 ---
 
@@ -912,6 +981,7 @@ Objetivo: llegar cuanto antes a un punto en el que **la propia herramienta imple
 | `prepare_workspace`, `ia_agent` (Copilot y/o Claude), `ia_agent_validator`, `git.commit`, `git.push`, `git.create_pr` | 3 | Con el contrato de prompt y la auditoría de invocaciones (6.8) |
 | `launch_plans` y `wait_plan` | 6 → **adelantada** | Necesarios para "un plan que lanza planes" |
 | `run_command` local (tests, lint) | NICE_TO_HAVE 3.2 → **promovida** | El validador y el agente necesitan ver la salida real de los tests |
+| Niveles de modelo, topes (`max_model_tier`) y presupuestos por invocación y por run (10.1) | NICE_TO_HAVE 4 → **promovido** | Imprescindible para que el bootstrap sea barato desde el primer run |
 
 **Fuera del hito (se construye después, ya con la propia herramienta):** UI (fase 4), nodos Jira y Confluence (5, 7), ciclo posterior al PR, escaneo de secretos y el resto de NICE_TO_HAVE.
 
@@ -933,7 +1003,7 @@ Objetivo: llegar cuanto antes a un punto en el que **la propia herramienta imple
 
 ## 16. Puntos aún por decidir
 1. ~~`uv` o `pip`+venv~~ **Decidido: `pip` + venv** (Python 3.11.9). Dependencias en `pyproject.toml` con extras `dev`; `requirements.lock` opcional generado con `pip freeze` para reproducibilidad.
-2. **Flags de los CLIs:** Copilot ya está cubierto por la invocación de pruebas (ver "Adaptadores de proveedor"). No hay invocación de referencia para `claude`: se derivará de `claude --help` al implementar el adaptador y se probará con un caso real. Falta confirmar con una prueba que el `--agent`/skill de Copilot escribe `result.json` de forma fiable (la ronda de auto-reparación mitiga los fallos ocasionales).
+2. **Flags de los CLIs:** Copilot ya está cubierto por la invocación de pruebas (ver "Adaptadores de proveedor"). Claude ya está cubierto con `claude --help` y una prueba real (ver "Adaptador de Claude"); queda probar `--json-schema` y un caso con herramientas sobre un repo. Falta confirmar con una prueba que el `--agent`/skill de Copilot escribe `result.json` de forma fiable (la ronda de auto-reparación mitiga los fallos ocasionales).
 3. **Confluence:** espacio y página padre por defecto; ¿se pasan por input o por `.env`?
 4. **Retención:** cuánto tiempo conservar logs y workspaces de runs terminados.
 5. **Notificaciones:** ¿aviso de escritorio cuando haya una aprobación pendiente o un run falle?
