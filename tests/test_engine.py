@@ -393,3 +393,31 @@ def test_relanzar_launch_plans_reutiliza_los_hijos(tmp_path):
     ctx = ExecContext(engine, ctx_run, plan, "launch", 2, config, tmp_path / "x")
     outcome = asyncio.run(engine.executors["launch_plans"].run(ctx))
     assert outcome.outputs["run_ids"] == first
+
+
+def test_reactivar_un_hijo_reabre_la_espera_del_padre(tmp_path):
+    """Regresión: con el padre ya fallido, un hijo reactivado nunca se volvía a avanzar."""
+    write_child(tmp_path)
+    broken = {"on": True}
+
+    def step(ctx):
+        failing = broken["on"] and ctx.run["plan_name"] == "child" and ctx.run["inputs"]["n"] == "1"
+        return Outcome("failed" if failing else "ok", {"exit_code": 1 if failing else 0, "passed": not failing,
+                                                        "output_tail": ""})
+
+    executors = standard_executors()
+    executors["run_command"] = Scripted("run_command", step)
+    engine = make_engine(tmp_path, executors)
+    plan = parent_plan()
+    plan["edges"] = [{"from": "launch.ok", "to": "wait"}, {"from": "wait.all_ok", "to": "fin"}]  # some_failed sin manejar
+    run_id = build(engine, plan)
+    assert drive(engine, run_id) == "failed"
+    failed_child = next(c for c in engine.store.children_of(run_id) if c["status"] == "failed")
+    node = next(n for n, s in engine.store.all_nodes(failed_child["id"]).items() if s["status"] == "failed")
+
+    broken["on"] = False
+    engine.retry_node(failed_child["id"], node)
+    assert engine.store.get_run(run_id)["status"] == "running"  # el padre se reabrió
+    assert drive(engine, run_id) == "succeeded"
+    assert engine.store.get_run(failed_child["id"])["status"] == "succeeded"
+    assert engine.store.latest_outputs(run_id, "wait")["failed_count"] == 0

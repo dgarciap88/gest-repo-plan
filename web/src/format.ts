@@ -28,3 +28,14 @@ export function fmtInputs(inputs: Record<string, unknown>): string {
 export function pretty(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
+
+/** "hace 3 min", "hace 2 h"… para saber cuándo cambió algo por última vez. */
+export function fmtAgo(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
+  if (s < 10) return 'ahora mismo'
+  if (s < 60) return `hace ${s} s`
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`
+  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`
+  return `hace ${Math.floor(s / 86400)} d`
+}

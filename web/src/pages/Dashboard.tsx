@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type RunSummary, api } from '../api'
 import { StatusBadge } from '../components/StatusBadge'
-import { fmtCost, fmtDuration, fmtInputs, fmtTime } from '../format'
+import { fmtAgo, fmtCost, fmtDuration, fmtInputs, fmtTime } from '../format'
 
 const FILTERS: [string, string][] = [
   ['', 'Todos'],
@@ -43,7 +43,15 @@ function RunRow({ run, depth = 0 }: { run: RunSummary; depth?: number }) {
         <div className="progress" title={`${run.progress.succeeded}/${run.progress.total} nodos correctos`}>
           <div style={{ width: `${pct}%` }} />
         </div>
-        <span className="dim small">{run.progress.active.join(', ') || `${run.progress.succeeded}/${run.progress.total}`}</span>
+        <span className="dim small">{run.progress.succeeded}/{run.progress.total}</span>
+      </td>
+      <td>
+        <div className={`last ${run.last.level}`} title={run.last.text}>
+          {run.last.text}
+        </div>
+        <span className="dim small" title={fmtTime(run.last.at)}>
+          {fmtAgo(run.last.at)}
+        </span>
       </td>
       <td>{run.children_count > 0 ? run.children_count : '—'}</td>
       <td>{fmtDuration(run.started_at, run.finished_at)}</td>
@@ -58,7 +66,7 @@ export function Dashboard() {
   const [status, setStatus] = useState('')
   const [q, setQ] = useState('')
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
-  const runs = useQuery({ queryKey: ['runs', status, q], queryFn: () => api.runs({ status, q }) })
+  const runs = useQuery({ queryKey: ['runs', status, q], queryFn: () => api.runs({ status, q }), refetchInterval: 30000 })
   const attention = (runs.data ?? []).filter((r) => r.pending_approvals > 0 || r.status === 'failed')
   const counts = stats.data?.runs ?? {}
 
@@ -132,6 +140,7 @@ export function Dashboard() {
                   <th>Inputs</th>
                   <th>Estado</th>
                   <th>Progreso</th>
+                  <th>Último estado</th>
                   <th>Hijos</th>
                   <th>Duración</th>
                   <th>Coste</th>

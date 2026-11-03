@@ -72,10 +72,57 @@ def _node_states(engine: Engine, run_id: str) -> dict[str, Any]:
     return result
 
 
+_NODE_PHRASE = {
+    "ready": "preparando", "running": "ejecutando", "waiting_approval": "esperando aprobación en",
+    "waiting_external": "esperando", "failed": "falló", "interrupted": "interrumpido",
+    "cancelled": "cancelado",
+}
+
+
+def _last_state(engine: Engine, run: dict, nodes: dict[str, Any], pending: int,
+                children: list[dict]) -> dict[str, Any]:
+    """Frase corta con el estado actual del run y cuándo cambió por última vez."""
+    status = run["status"]
+    stuck = [(nid, n) for nid, n in nodes.items() if n["status"] in ("failed", "interrupted", "cancelled")]
+    active = [(nid, n) for nid, n in nodes.items() if n["status"] in ACTIVE_STATES]
+    if status == "succeeded":
+        text, level = "Terminado correctamente", "good"
+    elif status == "cancelled":
+        text, level = "Cancelado", "dim"
+    elif status == "failed":
+        node = next(((nid, n) for nid, n in stuck if n["status"] == "failed"), None)
+        if node:
+            attempts = engine.store.attempts(run["id"], node[0])
+            error = ((attempts[-1]["error"] if attempts else "") or run.get("error") or "").strip().splitlines()
+            text = f"Falló en {node[0]}" + (f": {error[-1][:160]}" if error else "")
+        else:
+            text = f"Falló: {run.get('error') or 'sin detalle'}"
+        level = "bad"
+    elif pending:
+        waiting = [nid for nid, n in active if n["status"] == "waiting_approval"]
+        text, level = f"Esperando aprobación en {', '.join(waiting) or 'un nodo'}", "warn"
+    elif active:
+        phrases = [f"{_NODE_PHRASE.get(n['status'], n['status'])} {nid}" for nid, n in active]
+        text, level = ", ".join(phrases).capitalize(), "info"
+        failing = [c for c in children if c["status"] == "failed"]
+        if failing:
+            text += f" · {len(failing)} hijo(s) fallido(s)"
+            level = "bad"
+    elif stuck:
+        nid, n = stuck[0]
+        text, level = f"{_NODE_PHRASE[n['status']].capitalize()} {nid}", "bad"
+    else:
+        text, level = {"queued": "En cola", "running": "En marcha", "waiting": "En espera"}.get(status, status), "dim"
+    last = engine.store.last_transition(run["id"])
+    return {"text": text, "level": level, "at": last["at"] if last else run["created_at"]}
+
+
 def run_summary(engine: Engine, run: dict) -> dict[str, Any]:
     store = engine.store
     nodes = store.all_nodes(run["id"])
     started, finished = run["started_at"], run["finished_at"]
+    children = store.children_of(run["id"])
+    pending = sum(1 for a in store.list_approvals("pending") if a["run_id"] == run["id"])
     return {
         "id": run["id"], "plan_name": run["plan_name"], "status": run["status"], "inputs": run["inputs"],
         "created_at": run["created_at"], "started_at": started, "finished_at": finished,
@@ -86,8 +133,9 @@ def run_summary(engine: Engine, run: dict) -> dict[str, Any]:
             "total": len(nodes),
             "active": [nid for nid, n in nodes.items() if n["status"] in ACTIVE_STATES],
         },
-        "children_count": len(store.children_of(run["id"])),
-        "pending_approvals": sum(1 for a in store.list_approvals("pending") if a["run_id"] == run["id"]),
+        "children_count": len(children),
+        "pending_approvals": pending,
+        "last": _last_state(engine, run, nodes, pending, children),
     }
 
 

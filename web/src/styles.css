@@ -605,3 +605,11 @@ tr.child-row td:first-child { padding-left: 28px; }
 tr.child-row { background: rgba(128, 128, 128, .06); }
 button.toggle { background: none; border: 0; cursor: pointer; color: inherit; padding: 0 6px 0 0; }
 .btn.small { padding: 2px 8px; font-size: 12px; }
+
+/* Último estado de un run */
+.last { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.last.good { color: var(--good); }
+.last.bad { color: var(--bad); }
+.last.warn { color: var(--warn); }
+.last.info { color: var(--info); }
+.last.dim { color: var(--text-dim); }

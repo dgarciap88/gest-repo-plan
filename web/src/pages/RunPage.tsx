@@ -6,7 +6,7 @@ import { Graph } from '../components/Graph'
 import { NodePanel } from '../components/NodePanel'
 import { StatusBadge } from '../components/StatusBadge'
 import { Timeline } from '../components/Timeline'
-import { fmtCost, fmtDuration, fmtInputs, fmtTime } from '../format'
+import { fmtAgo, fmtCost, fmtDuration, fmtInputs, fmtTime } from '../format'
 
 export function RunPage() {
   const { id = '' } = useParams()
@@ -40,6 +40,9 @@ export function RunPage() {
             {info.plan_name} <StatusBadge status={info.status} />
           </h1>
           <p className="dim">{fmtInputs(info.inputs)}</p>
+          <p className={`last ${info.last.level}`} style={{ maxWidth: 'none', whiteSpace: 'normal' }}>
+            {info.last.text} <span className="dim small">· {fmtAgo(info.last.at)}</span>
+          </p>
           <p className="dim small">
             Creado {fmtTime(info.created_at)} · duración {fmtDuration(info.started_at, info.finished_at)} · coste {fmtCost(info.cost_usd)}
           </p>

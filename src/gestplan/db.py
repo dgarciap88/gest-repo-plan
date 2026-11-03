@@ -283,6 +283,11 @@ class Store:
         return self._many("transitions", "SELECT * FROM transitions WHERE id>? ORDER BY id LIMIT ?",
                           (after_id, limit))
 
+    def last_transition(self, run_id: str) -> Row | None:
+        rows = self._many("transitions", "SELECT * FROM transitions WHERE run_id=? ORDER BY id DESC LIMIT 1",
+                          (run_id,))
+        return rows[0] if rows else None
+
     def last_event_id(self) -> int:
         return int(self.conn.execute("SELECT COALESCE(MAX(id),0) FROM transitions").fetchone()[0])
 

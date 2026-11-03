@@ -105,6 +105,25 @@ def test_detalle_de_nodo_logs_y_eventos(client):
     assert "id: 1\n" in body
 
 
+def test_el_ultimo_estado_del_run_se_resume_en_una_frase(client):
+    run_id = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
+    done = wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "waiting")
+    last = done["run"]["last"]
+    assert last["text"] == "Esperando aprobación en approval" and last["level"] == "warn" and last["at"]
+    approval_id = client.get("/api/approvals").json()[0]["id"]
+    client.post(f"/api/approvals/{approval_id}/decision", json={"decision": "approved"})
+    ok = wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "succeeded")
+    assert ok["run"]["last"] == {**ok["run"]["last"], "text": "Terminado correctamente", "level": "good"}
+    assert client.get("/api/runs").json()[0]["last"]["text"] == "Terminado correctamente"
+
+    client.post(f"/api/runs/{run_id}/cancel")  # un run terminado no cambia
+    bad = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
+    wait_for(client, f"/api/runs/{bad}", lambda d: d["run"]["status"] == "waiting")
+    client.post(f"/api/runs/{bad}/cancel")
+    cancelled = wait_for(client, f"/api/runs/{bad}", lambda d: d["run"]["status"] == "cancelled")
+    assert cancelled["run"]["last"]["text"] == "Cancelado"
+
+
 def test_linea_temporal_del_run(client):
     run_id = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
     wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "waiting")

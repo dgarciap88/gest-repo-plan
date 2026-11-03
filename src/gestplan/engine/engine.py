@@ -236,6 +236,21 @@ class Engine:
                 if child and child["status"] == "cancelled":
                     self.reactivate_run(child_id)
         self.store.set_run_status(run_id, "running", reason=f"nodo {node_id} reactivado")
+        self._reopen_parent(run)
+
+    def _reopen_parent(self, run: dict) -> None:
+        """Reactivar un hijo reabre la espera del padre; si no, el padre (ya terminado) nunca lo volvería a avanzar."""
+        parent_id = run.get("parent_run_id")
+        parent = self.store.get_run(parent_id) if parent_id else None
+        if parent is None:
+            return
+        plan = self._state(parent).plan
+        for node_id, spec in plan.nodes.items():
+            waits_for_run = spec.type == "wait_plan" and spec.config.get("launched_by") == run.get("parent_node_id")
+            if waits_for_run and self.store.get_node(parent["id"], node_id)["status"] in (
+                    "failed", "cancelled", "interrupted"):
+                self.retry_node(parent["id"], node_id)  # reabre a su vez al padre del padre
+                return
 
     def reactivate_run(self, run_id: str) -> None:
         """Reactiva los nodos cancelados, interrumpidos o fallidos sin manejar de un run hijo."""
@@ -248,6 +263,9 @@ class Engine:
             if st["status"] == "skipped":
                 self.store.set_node(run_id, other, "pending", reason="reactivación")
         self.store.set_run_status(run_id, "queued", reason="run reactivado")
+        run = self.store.get_run(run_id)
+        if run:
+            self._reopen_parent(run)
 
     # ------------------------------------------------------------------ bucle principal -----
     def _family(self, run_id: str) -> list[str]:

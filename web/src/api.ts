@@ -15,6 +15,7 @@ export interface RunSummary {
   progress: { succeeded: number; total: number; active: string[] }
   children_count: number
   pending_approvals: number
+  last: { text: string; level: 'good' | 'bad' | 'warn' | 'info' | 'dim'; at: string }
 }
 
 export interface GraphNode {
