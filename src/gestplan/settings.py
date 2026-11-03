@@ -65,6 +65,8 @@ class Settings:
     claude_setting_sources: str = "project"
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_CLAUDE_MODELS))
     copilot_path: str | None = None
+    # Carpeta donde viven los agentes y skills de usuario (<home>/.copilot/agents y /skills)
+    agents_home: Path = field(default_factory=lambda: Path.home() / ".copilot")
     copilot_models: dict[str, str] = field(default_factory=dict)
     # Atlassian Cloud (las credenciales viven en el .env, nunca en los planes)
     jira_base_url: str = ""
@@ -106,6 +108,7 @@ class Settings:
             claude_path=os.environ.get("GP_CLAUDE_PATH") or None,
             claude_setting_sources=os.environ.get("GP_CLAUDE_SETTING_SOURCES", "project"),
             copilot_path=env("GP_COPILOT_PATH") or None,
+            agents_home=Path(env("GP_AGENTS_HOME", "").strip() or Path.home() / ".copilot"),
             copilot_models={t: m for t, m in copilot_models.items() if m},
             jira_base_url=jira_base,
             jira_email=jira_email,

@@ -51,5 +51,5 @@ Los datos (BD SQLite, logs, workspaces) van a `./data` (`GP_DATA_DIR`, `GP_WORKS
 - `src/gestplan/executors/` · ejecución de cada nodo (git, agente Claude, flujo...).
 - `src/gestplan/engine/` · motor y ejecución de procesos; `db.py` · persistencia SQLite.
 - `src/gestplan/server/` · API FastAPI, supervisor persistente y vistas JSON; `web/` · UI (Vite + React + React Flow).
-- `plans/` · planes (`implement-task`, `implement-tasks`; ejemplos en `plans/examples/`); `tasks/` · tareas; `templates/` · plantillas de prompt; `scripts/` · scripts Python registrados.
+- `plans/` · planes (`implement-task`, `implement-tasks`, `apply-skill`; ejemplos en `plans/examples/`); `tasks/` · tareas; `templates/` · plantillas de prompt; `scripts/` · scripts Python registrados.
 - `tests/` · pruebas (`pytest`).

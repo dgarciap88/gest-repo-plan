@@ -93,8 +93,9 @@ async def _call(
     prompt_path.write_text(prompt, encoding="utf-8")
     argv = build_copilot_argv(exe, opts) if copilot else build_argv(exe, opts)
     started = ctx.store.clock()
+    env = {"COPILOT_HOME": str(ctx.settings.agents_home)} if copilot else None
     proc = await ctx.process(
-        argv, cwd=workspace, stdin_text=prompt, kind="claude",
+        argv, cwd=workspace, stdin_text=prompt, kind=opts.provider, env=env,
         timeout_s=ctx.engine.node_timeout(ctx.run, ctx.node_id),
         idle_timeout_s=ctx.engine.node_idle_timeout(ctx.run, ctx.node_id))
     if copilot:  # texto plano, sin coste ni tokens: se adapta al formato que espera el resto del flujo
@@ -143,7 +144,7 @@ async def invoke_agent(ctx: ExecContext, *, role: Literal["dev", "validator"], r
         setting_sources=settings.claude_setting_sources, provider=provider, read_only=role == "validator")
     run = AgentRun(session_id=session_id)
     prompt = build_prompt(language=ctx.plan.settings.language, task=task, data_blocks=data_blocks,
-                          result_model=result_model, extra_rules=extra_rules)
+                          result_model=result_model, extra_rules=extra_rules, skill=cfg.get("skill"))
 
     for number, kind in ((1, "main"), (2, "repair")):
         data, proc = await _call(ctx, kind=kind, prompt=prompt, opts=opts, number=number)

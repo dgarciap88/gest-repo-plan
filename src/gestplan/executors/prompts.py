@@ -75,9 +75,11 @@ def render_template(text: str, variables: dict[str, Any]) -> str:
 
 
 def build_prompt(*, language: str, task: str, data_blocks: list[tuple[str, str]],
-                 result_model: type[BaseModel], extra_rules: str = "") -> str:
+                 result_model: type[BaseModel], extra_rules: str = "", skill: str | None = None) -> str:
     lang = language if language in _PREAMBLE else "es"
     parts = [_PREAMBLE[lang], task.strip()]
+    if skill:  # la invocación de una skill debe ser lo primero del prompt
+        parts.insert(0, f"/{skill}")
     for title, content in data_blocks:
         parts.append(
             f"## {_UNTRUSTED[lang]}: {title}\n\n<<<INICIO>>>\n{content.strip()}\n<<<FIN>>>"

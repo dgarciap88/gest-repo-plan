@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gestplan.nodes.base import NodeType, event
 from gestplan.nodes.common import ModelTier
 from gestplan.nodes.registry import register
-from gestplan.plans.issues import Issue, error
+from gestplan.plans.issues import Issue, error, warning
 from gestplan.settings import MODEL_TIERS
 
 
@@ -27,6 +27,14 @@ class AgentConfigBase(BaseModel):
     model: str | None = Field(default=None, description="Modelo explícito (solo si está permitido)")
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
     agent: str | None = Field(default=None, description="Agente de reglas (--agent)")
+    skill: str | None = Field(
+        default=None,
+        pattern=r"^(?:[A-Za-z0-9_.:-]+|\$\{[^}]+\})$",
+        description=(
+            "Skill a aplicar: el prompt empieza por la línea /<skill>. Se busca en la carpeta de skills de usuario "
+            "(<GP_AGENTS_HOME>/skills, por defecto ~/.copilot/skills) y en las del repositorio"
+        ),
+    )
     workspace: str = Field(description="Ruta del workspace donde trabaja el agente")
     prompt_template: str | None = Field(default=None, description="Plantilla de prompt (ruta)")
     prompt: str | None = Field(default=None, description="Instrucciones en línea")
@@ -44,6 +52,23 @@ class AgentConfigBase(BaseModel):
         if not self.prompt_template and not self.prompt:
             raise ValueError("indica 'prompt_template' o 'prompt'")
         return self
+
+
+def _check_agent_files(node_id: str, ctx: Any, config: AgentConfigBase) -> list[Issue]:
+    """Aviso (no error) si la skill o el agente no están en la carpeta de usuario: pueden venir del repositorio."""
+    home = ctx.settings.agents_home
+    issues: list[Issue] = []
+    if config.skill and "${" not in config.skill and not (home / "skills" / config.skill / "SKILL.md").is_file():
+        issues.append(warning("skill_not_found", f"no se encontró la skill '{config.skill}' en {home / 'skills'}",
+                              node=node_id, path="config.skill",
+                              hint="si está en el repositorio (.github/skills, .claude/skills) no hace falta nada; "
+                                   "si no, revisa GP_AGENTS_HOME"))
+    if config.agent and "${" not in config.agent and not any(
+            (home / "agents" / f"{config.agent}{ext}").is_file() for ext in (".agent.md", ".md")):
+        issues.append(warning("agent_not_found", f"no se encontró el agente '{config.agent}' en {home / 'agents'}",
+                              node=node_id, path="config.agent",
+                              hint="si está en el repositorio no hace falta nada; si no, revisa GP_AGENTS_HOME"))
+    return issues
 
 
 def _check_agent(node_id: str, spec: Any, ctx: Any, config: AgentConfigBase) -> list[Issue]:
@@ -70,6 +95,7 @@ def _check_agent(node_id: str, spec: Any, ctx: Any, config: AgentConfigBase) -> 
                     hint=f"usa uno de: {', '.join(t for t in MODEL_TIERS if ctx.settings.tier_allowed(t))}",
                 )
             )
+    issues += _check_agent_files(node_id, ctx, config)
     if config.provider == "copilot" and not config.model:
         missing = [t for t in tiers if not ctx.settings.copilot_models.get(t)]
         if missing:
