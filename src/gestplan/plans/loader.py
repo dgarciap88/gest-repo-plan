@@ -29,6 +29,15 @@ def load_plan(path: Path) -> tuple[Plan | None, list[Issue]]:
     return parse_plan(data)
 
 
+def find_plan_file(root: Path, name: str) -> Path | None:
+    """Busca un plan por nombre en plans/ y plans/examples/."""
+    for folder in (Path(root) / "plans", Path(root) / "plans" / "examples"):
+        candidate = folder / f"{name}.json"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def parse_plan(data: Any) -> tuple[Plan | None, list[Issue]]:
     if not isinstance(data, dict):
         return None, [error("schema", "la raíz del plan debe ser un objeto JSON")]

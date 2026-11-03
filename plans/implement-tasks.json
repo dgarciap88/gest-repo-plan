@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "name": "implement-tasks",
+  "description": "Lanza un plan implement-task por cada tarea indicada (con límite de concurrencia) y espera a que terminen. Cada run hijo tiene su propia aprobación manual antes de publicar.",
+  "inputs": {
+    "task_ids": { "type": "string", "required": true, "description": "Ids de tarea separados por comas, p. ej. TASK-001,TASK-002" },
+    "repo_url": { "type": "string", "required": true, "description": "URL del repositorio" },
+    "base": { "type": "string", "default": "main", "description": "Rama base" },
+    "max_parallel": { "type": "integer", "default": 2, "description": "Tareas simultáneas como máximo" }
+  },
+  "settings": { "language": "es", "display_inputs": ["task_ids"] },
+  "nodes": {
+    "items": {
+      "type": "python_script",
+      "config": {
+        "script": "task_items",
+        "inputs": {
+          "task_ids": "${inputs.task_ids}",
+          "repo_url": "${inputs.repo_url}",
+          "base": "${inputs.base}"
+        }
+      }
+    },
+    "launch": {
+      "type": "launch_plans",
+      "config": {
+        "plan": "implement-task",
+        "items": "${nodes.items.outputs.items}",
+        "max_parallel": "${inputs.max_parallel}"
+      }
+    },
+    "wait": {
+      "type": "wait_plan",
+      "config": { "launched_by": "launch" }
+    }
+  },
+  "edges": [
+    { "from": "items.ok", "to": "launch" },
+    { "from": "launch.ok", "to": "wait" }
+  ]
+}

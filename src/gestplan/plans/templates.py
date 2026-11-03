@@ -60,23 +60,35 @@ def walk_strings(value: Any, path: str = "") -> Iterator[tuple[str, str]]:
             yield from walk_strings(item, f"{path}[{index}]")
 
 
-def resolve_template(value: Any, context: dict[str, Any]) -> Any:
+def resolve_template(value: Any, context: dict[str, Any], *, empty_missing_nodes: bool = False) -> Any:
     """Resuelve las referencias de un valor. Si el valor es solo una referencia,
-    conserva el tipo del dato; si es texto mezclado, interpola con str()."""
+    conserva el tipo del dato; si es texto mezclado, interpola con str().
+
+    Con `empty_missing_nodes`, una referencia `nodes.*` que aún no existe (p. ej. el feedback del
+    validador en la primera ronda de un bucle) se resuelve como cadena vacía.
+    """
     if isinstance(value, str):
         whole = WHOLE_RE.match(value)
         if whole:
-            return _lookup(whole.group(1), context)
-        return REF_RE.sub(lambda m: str(_lookup(m.group(1), context)), value)
+            return _lookup(whole.group(1), context, empty_missing_nodes)
+        return REF_RE.sub(lambda m: str(_lookup(m.group(1), context, empty_missing_nodes)), value)
     if isinstance(value, dict):
-        return {key: resolve_template(item, context) for key, item in value.items()}
+        return {k: resolve_template(v, context, empty_missing_nodes=empty_missing_nodes)
+                for k, v in value.items()}
     if isinstance(value, list):
-        return [resolve_template(item, context) for item in value]
+        return [resolve_template(v, context, empty_missing_nodes=empty_missing_nodes) for v in value]
     return value
 
 
-def _lookup(raw: str, context: dict[str, Any]) -> Any:
-    found, result = get_path(context, raw.strip())
+def _lookup(raw: str, context: dict[str, Any], empty_missing_nodes: bool = False) -> Any:
+    path = raw.strip()
+    found, result = get_path(context, path)
     if not found:
-        raise UnresolvedReference(raw.strip())
+        parts = path.split(".")
+        # solo es "vacío" si el nodo aún no ha producido salidas (p. ej. primera ronda de un bucle);
+        # un campo que falta en las salidas de un nodo que sí se ejecutó es un error
+        if empty_missing_nodes and len(parts) >= 2 and parts[0] == "nodes" \
+                and parts[1] not in context.get("nodes", {}):
+            return ""
+        raise UnresolvedReference(path)
     return result

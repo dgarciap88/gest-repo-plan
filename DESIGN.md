@@ -604,7 +604,7 @@ Comprobaciones:
 ## 9. Persistencia (SQLite)
 
 - SQLite en `data/gestplan.db`, `PRAGMA journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout`.
-- SQLAlchemy 2.0 + Alembic para migraciones.
+- Implementado con `sqlite3` de la biblioteca estándar y migraciones propias (ver 15.2); SQLAlchemy y Alembic quedan como opción futura.
 - Un único escritor lógico (el motor); las lecturas de la API son concurrentes.
 - Cada transición de estado se persiste **antes** de actuar (para poder recuperarse tras una caída).
 - Contexto, config e outputs como columnas JSON.
@@ -998,6 +998,33 @@ Objetivo: llegar cuanto antes a un punto en el que **la propia herramienta imple
 - **Aprobaciones antes de cualquier efecto externo** (regla 7.1) desde el primer plan, también en el bootstrap.
 - **Orden de tareas:** primero las que permiten ejecutar el siguiente plan (el propio camino al hito lo recorre el asistente), luego las que se prueban con la herramienta, empezando por tareas pequeñas y de bajo riesgo para validar el flujo.
 - **Repositorio:** `gest-repo-plan` debe ser un repo git con remoto en GitHub antes de usar `prepare_workspace` sobre sí mismo.
+
+### 15.2 Estado de implementación
+
+**Hecho (hito Bootstrap, solo con Claude; además el servidor web y la UI, ver más abajo):** modelos de plan, validador, catálogo, `dry-run` y `doctor` (fase 1); SQLite, motor con estados, reintentos, reactivación, recuperación y timeouts (fase 2); `prepare_workspace`, `cleanup_workspace`, `ia_agent`, `ia_agent_validator`, `run_command`, `git.commit`, `git.push`, `git.create_pr` (fase 3); `route`, `manual_approval`, `python_script`, `launch_plans`, `wait_plan`; niveles de modelo con topes y presupuesto por invocación (`--max-budget-usd`); auditoría de comandos (`executions`) e invocaciones de IA (`invocations`); CLI de operación (`run`, `resume`, `status`, `logs`, `cancel`, `retry`, `approvals`, `cost`). Planes `implement-task` e `implement-tasks` y tareas iniciales en `tasks/`. 135 tests (incluidos git real con remoto local y un Claude falso) y una prueba real con Claude Haiku.
+
+**Servidor web y UI (fase 4, primera versión):** `gestplan serve` arranca FastAPI con un **supervisor persistente** (el mismo motor, ahora en un bucle que no termina) que avanza todos los runs activos, recupera los nodos interrumpidos al arrancar y se despierta al instante con cada acción de la API. La API sigue la sección 11 (runs, planes, catálogo, aprobaciones, nodos, logs, invocaciones, estadísticas) y un canal **SSE** (`/api/events`, reanudable con `Last-Event-ID`) emite las transiciones de nodo, run y aprobación leyendo la propia tabla `transitions`. La UI (`web/`: Vite, React, TypeScript, React Flow, TanStack Query) ofrece dashboard con contadores y "Requiere atención", grafo del run con estados, aristas disparadas y bucles discontinuos por debajo, panel de nodo (resumen, intentos, datos, logs en vivo, actividad de IA con prompt y respuesta), buzón de aprobaciones con vista previa, visor de planes con validación y formulario de lanzamiento, y catálogo con "copiar como Markdown para IA". El backend sirve `web/dist` (un solo proceso) y la UI usa `HashRouter`. Diseño del grafo: posiciones por niveles calculadas en el servidor (sin ELK por ahora).
+
+**Pendiente:** editor visual del grafo; línea de tiempo y runs hijos anidados en el dashboard; notificaciones; protección de la API local (NICE_TO_HAVE 1.1); Jira y Confluence (5, 7); proveedor Copilot; nodos de GitHub de lectura (`get_pr_status`, `wait_checks`) y el ciclo posterior al PR; presupuesto por run y diario; `expire`/notificaciones; servidor persistente con SSE; el resto de NICE_TO_HAVE.
+
+**Decisiones tomadas al implementar**
+- **SQLite con la biblioteca estándar** (`sqlite3`, modo WAL) y migraciones propias por `PRAGMA user_version`, en lugar de SQLAlchemy y Alembic: menos dependencias y el esquema es pequeño. Se puede cambiar más adelante.
+- **Motor cooperativo de un solo proceso** (`Engine.run_until_quiescent`): avanza un run y sus hijos hasta que termina o solo quedan aprobaciones o esperas externas. Cada transición se persiste antes de actuar; `recover()` marca `interrumpido` lo que estaba en ejecución tras una caída.
+- **Semántica de uniones:** las aristas entrantes se agrupan **por nodo origen** (varios eventos del mismo origen son alternativas). `join: all` exige que todos los orígenes disparen; si uno murió, el nodo se salta. `join: any` basta con uno.
+- **Bucles:** un nodo que ya se ejecutó se reejecuta (nuevo intento) cuando le llega una arista; el límite es `max_attempts` o el derivado del validador (`max_retries + 1`). Al superarlo, el nodo falla con el evento `max_attempts`. Reactivar un nodo (`retry`) reinicia su contador.
+- **Config normalizada:** el motor resuelve las referencias y valida el resultado con el `ConfigModel` del nodo, de modo que los ejecutores reciben los valores por defecto del modelo (p. ej. el validador es de solo lectura). Las referencias a nodos que aún no han producido salidas valen cadena vacía (primera ronda de un bucle); un campo ausente en un nodo que sí se ejecutó es un error.
+- **Reactivar `wait_plan`** reactiva también los hijos cancelados que espera; `launch_plans` es idempotente por clave `padre:nodo:índice`.
+- **Aprobaciones por CLI** (`approvals list/show/approve/reject`) y continuación con `resume`; la aprobación se invalida si el nodo se reejecuta.
+- **Commits y mensajes:** `git.commit` usa `-F` (fichero UTF-8, sin depender de la codificación de consola), aplica la política de mensajes y elimina trailers `Co-Authored-By`.
+
+**Hallazgos con Claude real (Haiku 5.5, Claude Code 2.1.317)**
+- Una tarea mínima (función + test) con agente y validador cuesta **≈ 0,007–0,014 USD**; ~35 000 tokens de contexto base por llamada, mayormente caché.
+- En Windows el CLI ejecuta comandos con la herramienta **PowerShell**: las reglas de `--allowedTools` deben cubrir `PowerShell(...)` además de `Bash(...)`.
+- Las reglas de comando son estrictas: `python -m pytest ... || py ...` (comando compuesto, con redirección) se **deniega**. El preámbulo del sistema pide comandos simples y de uno en uno. `permission_denials` del JSON del CLI permite auditar qué se denegó.
+- Si se muestra el esquema JSON tal cual, el modelo copia la clave `description` de la clase en su respuesta: el contrato se envía sin `title` ni descripción de clase.
+- El `session_id` útil para reanudar es el que **devuelve el CLI**, no el UUID que se calcula.
+
+**Entorno:** el antivirus (Avast) intercepta HTTPS con su propio certificado. El `pip` global (≥ 26) usa el almacén de Windows y funciona; el `pip` 24 de un venv nuevo usa `certifi` y falla con `CERTIFICATE_VERIFY_FAILED`. Se instala desde el `pip` global: `python -m pip --python .venv\Scripts\python.exe install -e ".[dev]"`.
 
 ---
 

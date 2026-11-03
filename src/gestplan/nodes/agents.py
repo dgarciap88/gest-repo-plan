@@ -161,7 +161,6 @@ class IaAgentValidator(NodeType):
 
     class ConfigModel(AgentConfigBase):
         permission_mode: Literal["acceptEdits", "dontAsk", "plan"] = "plan"
-        allowed_tools: list[str] = Field(default_factory=lambda: ["Read", "Grep", "Glob"])
         max_retries: int = Field(default=2, ge=0, description="Veces que puede devolver el trabajo")
         stop_on_no_progress: bool = True
         blocking_severities: list[Literal["high", "medium", "low"]] = Field(

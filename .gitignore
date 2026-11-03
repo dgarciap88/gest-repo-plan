@@ -16,3 +16,6 @@ data/
 # Frontend
 web/node_modules/
 web/dist/
+
+# Configuración local de herramientas
+.claude/
