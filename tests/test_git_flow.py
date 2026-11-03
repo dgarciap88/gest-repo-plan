@@ -216,3 +216,25 @@ def test_auditoria_de_comandos_ejecutados(tmp_path, remote):
     assert {"git", "gh"} <= kinds
     clone = next(e for e in executions if e["argv"][:2] == ["git", "-c"] and "clone" in e["argv"])
     assert clone["exit_code"] == 0 and Path(clone["stdout_path"]).exists()
+
+
+def test_el_commit_funciona_con_data_dir_relativo(tmp_path, monkeypatch):
+    """Regresión: con ./data relativo, git -F recibía una ruta relativa al cwd equivocado."""
+    from gestplan.db import Store
+    from gestplan.engine.engine import Engine
+    from gestplan.settings import Settings
+
+    monkeypatch.chdir(tmp_path)
+    engine = Engine(Store(Settings(data_dir=Path("data")).db_path), Settings(data_dir=Path("data")))
+    assert engine.attempt_dir("r1", "commit", 1).is_absolute()
+
+
+def test_la_vista_previa_del_pr_no_muestra_atribucion_a_una_ia(tmp_path):
+    from gestplan.executors.git import GitCreatePrExec
+
+    engine = make_engine(tmp_path)
+    config = {"workspace": ".", "base_branch": "main", "head_branch": "feature/x", "title": "Título largo del PR",
+              "body": "Contexto del cambio.\n\n\U0001f916 Generated with [Claude Code](https://claude.com/claude-code)"}
+    ctx = ExecContext(engine, {"id": "r"}, None, "pr", 1, config, tmp_path / "a")
+    preview = asyncio.run(GitCreatePrExec().preview(ctx))
+    assert "Contexto del cambio." in preview["text"] and "Claude" not in preview["text"]

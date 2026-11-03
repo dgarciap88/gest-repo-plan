@@ -145,7 +145,8 @@ class Engine:
         return node_type.idle_timeout_s if node_type else None
 
     def attempt_dir(self, run_id: str, node_id: str, attempt: int) -> Path:
-        return self.settings.data_dir / "runs" / run_id / node_id / str(attempt)
+        # absoluta: los procesos (git -F, gh --body-file) corren con otro cwd y no resolverían una ruta relativa
+        return (self.settings.data_dir / "runs" / run_id / node_id / str(attempt)).resolve()
 
     def _exec_context(self, run: dict, plan: Plan, node_id: str, attempt: int, config: dict) -> ExecContext:
         return ExecContext(self, run, plan, node_id, attempt, config, self.attempt_dir(run["id"], node_id, attempt))

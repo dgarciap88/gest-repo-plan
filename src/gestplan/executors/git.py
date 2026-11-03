@@ -92,8 +92,9 @@ class GitCreatePrExec(NodeExecutor):
         return f"{strip_ai_trailers(str(ctx.config['body']))}\n\n{marker}\n"
 
     async def preview(self, ctx: ExecContext) -> dict[str, Any] | None:
+        body = strip_ai_trailers(str(ctx.config["body"]))  # lo que se aprueba es lo que se publica
         return {"kind": "markdown", "title": f"PR: {ctx.config['title']}",
-                "text": f"`{ctx.config['head_branch']}` → `{ctx.config['base_branch']}`\n\n{ctx.config['body']}"}
+                "text": f"`{ctx.config['head_branch']}` → `{ctx.config['base_branch']}`\n\n{body}"}
 
     async def run(self, ctx: ExecContext) -> Outcome:
         cfg = ctx.config

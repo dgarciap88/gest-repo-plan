@@ -8,12 +8,13 @@ GENERIC_SUBJECTS = frozenset(
     {"fix", "fixes", "update", "updates", "changes", "change", "wip", "misc", "test", "tests",
      "cambios", "cambio", "arreglo", "actualizar", "actualizacion", "actualización", "mejoras"}
 )
-_TRAILER_RE = re.compile(r"(?im)^\s*co-authored-by:.*(?:\r?\n|$)")
+_TRAILER_RE = re.compile(
+    r"(?im)^\s*(?:co-authored-by:.*|.*(?:generated|generado) (?:with|by|con|por) \[?claude.*)(?:\r?\n|$)")
 _TICKET_PREFIX_RE = re.compile(r"^\s*\[?[A-Z][A-Z0-9]*-\d+\]?\s*[:\-]?\s*")
 
 
 def strip_ai_trailers(text: str) -> str:
-    """Elimina trailers de coautoría (el sistema nunca los añade)."""
+    """Elimina trailers de coautoría y líneas de atribución a una IA (el sistema nunca las añade)."""
     return _TRAILER_RE.sub("", text).rstrip()
 
 

@@ -123,6 +123,12 @@ def test_se_eliminan_trailers_de_coautoria():
     assert strip_ai_trailers(text) == "Mensaje"
 
 
+def test_se_eliminan_lineas_de_atribucion_a_una_ia():
+    body = "## Resumen\n\nCambio.\n\n\U0001f916 Generated with [Claude Code](https://claude.com/claude-code)\n"
+    assert strip_ai_trailers(body) == "## Resumen\n\nCambio."
+    assert strip_ai_trailers("Hecho\nGenerado con Claude") == "Hecho"
+
+
 def test_render_template_y_prompt_por_capas():
     assert render_template("Tarea {{task}} y {{lista}} {{falta}}!", {"task": "T-1", "lista": [1]}) == "Tarea T-1 y [1] !"
     from gestplan.executors.agents import DevResult
