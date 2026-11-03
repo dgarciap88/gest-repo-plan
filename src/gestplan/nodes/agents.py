@@ -16,10 +16,13 @@ from gestplan.settings import MODEL_TIERS
 class AgentConfigBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provider: Literal["claude"] = Field(default="claude", description="Proveedor de IA")
+    provider: Literal["claude", "copilot"] = Field(default="claude", description="Proveedor de IA")
     model_tier: ModelTier | list[ModelTier] = Field(
         default="cheap",
-        description="Nivel de modelo; una lista escala de nivel en los reintentos (ver DESIGN.md 10.1)",
+        description=(
+            "Nivel de modelo por coste: cheap, standard o premium. Una lista, p. ej. [\"cheap\", \"standard\"], "
+            "usa el nivel i-ésimo en el intento i (el último se repite) para escalar en los reintentos"
+        ),
     )
     model: str | None = Field(default=None, description="Modelo explícito (solo si está permitido)")
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
@@ -65,6 +68,18 @@ def _check_agent(node_id: str, spec: Any, ctx: Any, config: AgentConfigBase) -> 
                     node=node_id,
                     path="config.model_tier",
                     hint=f"usa uno de: {', '.join(t for t in MODEL_TIERS if ctx.settings.tier_allowed(t))}",
+                )
+            )
+    if config.provider == "copilot" and not config.model:
+        missing = [t for t in tiers if not ctx.settings.copilot_models.get(t)]
+        if missing:
+            issues.append(
+                error(
+                    "copilot_model_missing",
+                    f"no hay modelo de Copilot configurado para el nivel '{missing[0]}'",
+                    node=node_id,
+                    path="config.model_tier",
+                    hint=f"define GP_COPILOT_MODEL_{missing[0].upper()} en el .env o indica 'model'",
                 )
             )
     if config.model and ctx.settings.allowed_models and config.model not in ctx.settings.allowed_models:

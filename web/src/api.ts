@@ -121,6 +121,15 @@ export interface InvocationFull extends Invocation {
   stdout: string
   result: string
 }
+export interface TimelineRow {
+  node_id: string
+  attempt: number
+  status: string
+  event: string | null
+  started_at: string
+  finished_at: string | null
+  cost_usd: number
+}
 export interface Stats {
   runs: Record<string, number>
   pending_approvals: number
@@ -161,18 +170,35 @@ export interface PlanDetail {
   graph?: GraphView
   inputs?: Record<string, InputSpec>
 }
+export interface CatalogField {
+  name: string
+  type: string
+  required: boolean
+  default: string
+  description: string
+}
+export interface CatalogStructure {
+  name: string
+  fields: CatalogField[]
+}
 export interface CatalogNode {
   type: string
+  version: number
   family: string
   description: string
   side_effect: string
   events: { name: string; description: string; failure: boolean }[]
-  config_schema: { properties?: Record<string, { description?: string; type?: string; default?: unknown }>; required?: string[] }
+  config_fields: CatalogField[]
+  config_structures: CatalogStructure[]
+  outputs_fields: CatalogField[]
+  outputs_structures: CatalogStructure[]
+  dynamic_outputs: boolean
   default_timeout_s: number | null
   example: Record<string, unknown>
 }
 export interface Catalog {
   limits: Record<string, unknown>
+  plan_format: { title: string; body: string }[]
   nodes: CatalogNode[]
 }
 
@@ -186,10 +212,29 @@ export class ApiError extends Error {
   }
 }
 
+/** Token de la API local (GP_API_TOKEN): se toma una vez de ?token= y se guarda solo para esta pestaña. */
+export function apiToken(): string {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('token')
+    if (fromUrl) {
+      sessionStorage.setItem('gp_token', fromUrl)
+      window.history.replaceState(null, '', window.location.pathname + window.location.hash)
+    }
+    return sessionStorage.getItem('gp_token') ?? ''
+  } catch {
+    return ''
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = apiToken()
   const response = await fetch(`/api${path}`, {
     ...init,
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: {
+      'X-Gestplan': '1',
+      ...(token ? { 'X-Gestplan-Token': token } : {}),
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+    },
   })
   if (!response.ok) {
     let detail: unknown
@@ -215,6 +260,7 @@ export const api = {
     return request<RunSummary[]>(`/runs?${query}`)
   },
   run: (id: string) => request<RunDetail>(`/runs/${id}`),
+  timeline: (id: string) => request<TimelineRow[]>(`/runs/${id}/timeline`),
   createRun: (plan: string, inputs: Record<string, string>) => post<{ id: string }>('/runs', { plan, inputs }),
   cancelRun: (id: string) => post(`/runs/${id}/cancel`),
   retryNode: (id: string, node: string) => post(`/runs/${id}/nodes/${node}/retry`),

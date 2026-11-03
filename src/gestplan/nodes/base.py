@@ -1,4 +1,4 @@
-"""Contrato de los tipos de nodo (ver DESIGN.md sección 5).
+"""Contrato de los tipos de nodo.
 
 Cada tipo declara en código sus metadatos; de ahí se generan el catálogo para la IA y las
 comprobaciones del validador. `side_effect` lo decide el código del nodo, nunca el plan.

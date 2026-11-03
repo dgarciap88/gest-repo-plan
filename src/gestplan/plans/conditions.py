@@ -1,4 +1,4 @@
-"""Condiciones declarativas en JSON para el nodo `route` (ver DESIGN.md 3.4)."""
+"""Condiciones declarativas en JSON para el nodo `route`."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Servidor web: API REST + eventos en tiempo real (SSE) + interfaz estática (ver DESIGN.md sección 11)."""
+"""Servidor web: API REST + eventos en tiempo real (SSE) + interfaz estática."""
 
 from __future__ import annotations
 
@@ -6,13 +6,14 @@ import asyncio
 import getpass
 import json
 import re
+import secrets
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -26,6 +27,40 @@ from gestplan.server.supervisor import Supervisor
 from gestplan.settings import Settings
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+CSRF_HEADER = "x-gestplan"
+TOKEN_HEADER = "x-gestplan-token"
+
+
+def _host_name(value: str) -> str:
+    """Nombre sin puerto de una cabecera Host u Origin (admite IPv6 entre corchetes)."""
+    value = value.split("://", 1)[-1].split("/", 1)[0]
+    return value.split("]")[0] + "]" if value.startswith("[") else value.split(":")[0]
+
+
+def guard_api(app: FastAPI, settings: Settings) -> None:
+    """Protege la API local frente a páginas web ajenas (NICE_TO_HAVE 1.1): DNS rebinding, CSRF y token."""
+    allowed = set(LOCAL_HOSTS) | set(settings.allowed_hosts)
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        if request.url.path.startswith("/api/"):
+            deny = None
+            if _host_name(request.headers.get("host", "")) not in allowed:
+                deny = "host no permitido"
+            elif request.method not in ("GET", "HEAD", "OPTIONS"):
+                origin = request.headers.get("origin")
+                if origin and _host_name(origin) != _host_name(request.headers.get("host", "")):
+                    deny = "origen no permitido"
+                elif CSRF_HEADER not in request.headers:
+                    deny = f"falta la cabecera {CSRF_HEADER}"
+            if deny is None and settings.api_token:
+                supplied = request.headers.get(TOKEN_HEADER) or request.query_params.get("token", "")
+                if not secrets.compare_digest(supplied, settings.api_token):
+                    deny = "token no válido"
+            if deny:
+                return JSONResponse({"detail": deny}, status_code=403)
+        return await call_next(request)
 
 
 class RunCreate(BaseModel):
@@ -56,6 +91,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
             task.cancel()
 
     app = FastAPI(title="gestplan", version="0.1.0", lifespan=lifespan)
+
+    guard_api(app, settings)
 
     def eng() -> Engine:
         return app.state.engine
@@ -139,6 +176,17 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
         if detail is None:
             raise HTTPException(404, f"no existe el run {run_id}")
         return detail
+
+    @app.get("/api/runs/{run_id}/timeline")
+    async def timeline(run_id: str) -> list[dict[str, Any]]:
+        store = eng().store
+        if store.get_run(run_id) is None:
+            raise HTTPException(404, "run no encontrado")
+        attempts = sorted(((a["id"], node_id, a) for node_id in store.all_nodes(run_id)
+                           for a in store.attempts(run_id, node_id)), key=lambda item: item[0])
+        return [{"node_id": node_id, "attempt": a["attempt"], "status": a["status"], "event": a["event"],
+                 "started_at": a["started_at"], "finished_at": a["finished_at"], "cost_usd": a["cost_usd"]}
+                for _, node_id, a in attempts]
 
     @app.post("/api/runs/{run_id}/cancel")
     async def cancel(run_id: str) -> dict[str, Any]:

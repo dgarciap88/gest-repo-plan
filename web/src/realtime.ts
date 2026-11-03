@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { apiToken } from './api'
 
 interface TransitionEvent {
   run_id: string
@@ -15,7 +16,7 @@ export function useRealtime(): boolean {
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
-    const source = new EventSource('/api/events')
+    const source = new EventSource(apiToken() ? `/api/events?token=${encodeURIComponent(apiToken())}` : '/api/events')
     let timer: number | undefined
     const runs = new Set<string>()
     const nodes = new Set<string>()

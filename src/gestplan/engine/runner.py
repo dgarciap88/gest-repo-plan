@@ -54,8 +54,18 @@ _SECRET_PATTERNS = (
 )
 
 
+_SECRET_VALUES: set[str] = set()
+
+
+def register_secrets(values) -> None:
+    """Valores concretos (tokens del .env) que se ocultan allí donde aparezcan."""
+    _SECRET_VALUES.update(v for v in values if len(v) >= 8)
+
+
 def redact(text: str) -> str:
     """Oculta valores con forma de credencial antes de persistir o mostrar texto."""
+    for value in _SECRET_VALUES:
+        text = text.replace(value, "***")
     for pattern in _SECRET_PATTERNS:
         if pattern.groups:
             text = pattern.sub(lambda m: m.group(1) + "***", text)

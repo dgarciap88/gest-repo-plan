@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "name": "fix-pr-feedback",
+  "description": "Ciclo posterior al PR: lee los comentarios de revisión y los checks de un PR abierto, corrige con el agente, valida y vuelve a publicar en la misma rama (con aprobación manual) hasta que los checks pasen",
+  "inputs": {
+    "repo_url": { "type": "string", "required": true, "description": "URL del repositorio" },
+    "branch": { "type": "string", "required": true, "description": "Rama remota del PR" },
+    "pr": { "type": "string", "required": true, "description": "Número o URL del PR" },
+    "base": { "type": "string", "default": "main", "description": "Rama base del PR" }
+  },
+  "settings": { "max_agents_parallel": 2, "language": "es", "display_inputs": ["pr"] },
+  "nodes": {
+    "ws": {
+      "type": "prepare_workspace",
+      "config": {
+        "repo_url": "${inputs.repo_url}",
+        "base_branch": "${inputs.base}",
+        "new_branch": "${inputs.branch}"
+      }
+    },
+    "reviews": {
+      "type": "github.get_review_comments",
+      "config": { "workspace": "${nodes.ws.outputs.path}", "pr": "${inputs.pr}" }
+    },
+    "checks": {
+      "type": "github.wait_checks",
+      "config": { "workspace": "${nodes.ws.outputs.path}", "pr": "${inputs.pr}", "max_wait_s": 1800 }
+    },
+    "fix": {
+      "type": "ia_agent",
+      "max_attempts": 3,
+      "config": {
+        "provider": "claude",
+        "model_tier": "cheap",
+        "workspace": "${nodes.ws.outputs.path}",
+        "prompt_template": "templates/prompts/fix-pr-feedback.md",
+        "variables": {
+          "task_path": "tasks/",
+          "review": "${nodes.reviews.outputs.text}",
+          "checks": "${nodes.checks.outputs.summary}",
+          "feedback": "${nodes.val.outputs.feedback}"
+        },
+        "max_cost_usd": 1.0
+      }
+    },
+    "tests": {
+      "type": "run_command",
+      "config": { "workspace": "${nodes.ws.outputs.path}", "command": ["python", "-m", "pytest", "-q"] }
+    },
+    "val": {
+      "type": "ia_agent_validator",
+      "config": {
+        "provider": "claude",
+        "model_tier": "cheap",
+        "workspace": "${nodes.ws.outputs.path}",
+        "prompt_template": "templates/prompts/validate-task.md",
+        "variables": { "task_path": "tasks/" },
+        "max_retries": 2,
+        "max_cost_usd": 0.5
+      }
+    },
+    "scan": {
+      "type": "secret_scan",
+      "config": { "workspace": "${nodes.ws.outputs.path}" }
+    },
+    "commit": {
+      "type": "git.commit",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "subject": "${nodes.fix.outputs.suggested_commit_subject}",
+        "body": "${nodes.fix.outputs.suggested_commit_body}"
+      }
+    },
+    "approval": {
+      "type": "manual_approval",
+      "config": {
+        "approves": ["push"],
+        "message": "Revisa las correcciones antes de actualizar la rama del PR"
+      }
+    },
+    "push": {
+      "type": "git.push",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "remote_branch": "${nodes.ws.outputs.remote_branch}"
+      }
+    }
+  },
+  "edges": [
+    { "from": "ws.ok", "to": "reviews" },
+    { "from": "reviews.has_comments", "to": "fix" },
+    { "from": "reviews.no_comments", "to": "checks" },
+    { "from": "checks.failure", "to": "fix" },
+    { "from": "fix.done", "to": "tests" },
+    { "from": "tests.ok", "to": "val" },
+    { "from": "tests.failed", "to": "fix" },
+    { "from": "val.changes_requested", "to": "fix" },
+    { "from": "val.approved", "to": "scan" },
+    { "from": "val.max_retries_reached", "to": "scan" },
+    { "from": "val.no_progress", "to": "scan" },
+    { "from": "scan.clean", "to": "commit" },
+    { "from": "commit.ok", "to": "approval" },
+    { "from": "approval.approved", "to": "push" },
+    { "from": "push.ok", "to": "checks" }
+  ]
+}

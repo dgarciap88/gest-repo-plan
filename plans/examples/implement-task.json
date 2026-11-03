@@ -51,6 +51,10 @@
         "max_cost_usd": 0.5
       }
     },
+    "scan": {
+      "type": "secret_scan",
+      "config": { "workspace": "${nodes.ws.outputs.path}" }
+    },
     "commit": {
       "type": "git.commit",
       "config": {
@@ -90,9 +94,10 @@
     { "from": "tests.ok", "to": "val" },
     { "from": "tests.failed", "to": "dev" },
     { "from": "val.changes_requested", "to": "dev" },
-    { "from": "val.approved", "to": "commit" },
-    { "from": "val.max_retries_reached", "to": "commit" },
-    { "from": "val.no_progress", "to": "commit" },
+    { "from": "val.approved", "to": "scan" },
+    { "from": "val.max_retries_reached", "to": "scan" },
+    { "from": "val.no_progress", "to": "scan" },
+    { "from": "scan.clean", "to": "commit" },
     { "from": "commit.ok", "to": "approval" },
     { "from": "approval.approved", "to": "push" },
     { "from": "push.ok", "to": "pr" }

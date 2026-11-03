@@ -14,11 +14,23 @@ const FILTERS: [string, string][] = [
   ['cancelled', 'Cancelados'],
 ]
 
-function RunRow({ run }: { run: RunSummary }) {
+function RunRow({ run, depth = 0 }: { run: RunSummary; depth?: number }) {
+  const [open, setOpen] = useState(false)
   const pct = run.progress.total ? Math.round((run.progress.succeeded / run.progress.total) * 100) : 0
+  const children = useQuery({
+    queryKey: ['run', run.id],
+    queryFn: () => api.run(run.id),
+    enabled: open && run.children_count > 0,
+  })
   return (
-    <tr>
-      <td>
+    <>
+    <tr className={depth ? 'child-row' : undefined}>
+      <td style={depth > 1 ? { paddingLeft: 28 + 20 * (depth - 1) } : undefined}>
+        {run.children_count > 0 && (
+          <button className="toggle" onClick={() => setOpen(!open)} title="Mostrar los runs hijos">
+            {open ? '▾' : '▸'}
+          </button>
+        )}
         <Link to={`/runs/${run.id}`}>{run.id}</Link>
       </td>
       <td>{run.plan_name}</td>
@@ -37,6 +49,8 @@ function RunRow({ run }: { run: RunSummary }) {
       <td>{fmtDuration(run.started_at, run.finished_at)}</td>
       <td>{fmtCost(run.cost_usd)}</td>
     </tr>
+    {open && (children.data?.children ?? []).map((child) => <RunRow key={child.id} run={child} depth={depth + 1} />)}
+    </>
   )
 }
 

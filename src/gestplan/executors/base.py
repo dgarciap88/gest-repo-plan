@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from gestplan.engine.http import HttpResult
 from gestplan.engine.runner import ProcResult, redact
 
 if TYPE_CHECKING:
@@ -98,5 +99,23 @@ class ExecContext:
         self.store._update("executions", "id=?", (row_id,), exit_code=result.exit_code,
                            timed_out=int(result.timed_out or result.stalled),
                            stdout_path=str(stdout_path), stderr_path=str(stderr_path),
+                           finished_at=self.store.clock())
+        return result
+
+    async def http(self, method: str, url: str, *, headers: dict[str, str] | None = None, json_body: Any = None,
+                   timeout_s: float = 60, keep_body: bool = True) -> HttpResult:
+        """Llamada HTTP auditada como una ejecución (método y URL; la cabecera de autenticación no se guarda)."""
+        self._exec_count += 1
+        stem = f"exec-{self._exec_count:02d}-http"
+        stdout_path = self.attempt_dir / f"{stem}.stdout.log"
+        row_id = self.store.add_execution(
+            run_id=self.run_id, node_id=self.node_id, attempt=self.attempt, kind="http",
+            argv=[method, redact(url)], cwd=None, started_at=self.store.clock())
+        result = await self.engine.http.request(method, url, headers=headers, json_body=json_body,
+                                                timeout_s=timeout_s)
+        shown = result.text[:20000] if keep_body else f"({len(result.body)} bytes)"
+        stdout_path.write_text(redact(shown), encoding="utf-8")
+        self.store._update("executions", "id=?", (row_id,), exit_code=result.status,
+                           timed_out=int(result.status == 0), stdout_path=str(stdout_path), stderr_path=None,
                            finished_at=self.store.clock())
         return result

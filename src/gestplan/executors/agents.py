@@ -15,7 +15,9 @@ from gestplan.executors.claude import (
     VALIDATOR_TOOLS,
     ClaudeOptions,
     build_argv,
+    build_copilot_argv,
     claude_executable,
+    copilot_executable,
     extract_json_object,
     parse_cli_output,
     resolve_model,
@@ -84,22 +86,26 @@ async def _cli_version(ctx: ExecContext, exe: str) -> str | None:
 async def _call(
     ctx: ExecContext, *, kind: str, prompt: str, opts: ClaudeOptions, number: int
 ) -> tuple[dict | None, Any]:
-    exe = claude_executable(ctx.settings)
+    copilot = opts.provider == "copilot"
+    exe = copilot_executable(ctx.settings) if copilot else claude_executable(ctx.settings)
     workspace = ctx.config["workspace"]
     prompt_path = ctx.attempt_dir / f"prompt-{number:02d}.md"
     prompt_path.write_text(prompt, encoding="utf-8")
-    argv = build_argv(exe, opts)
+    argv = build_copilot_argv(exe, opts) if copilot else build_argv(exe, opts)
     started = ctx.store.clock()
     proc = await ctx.process(
         argv, cwd=workspace, stdin_text=prompt, kind="claude",
         timeout_s=ctx.engine.node_timeout(ctx.run, ctx.node_id),
         idle_timeout_s=ctx.engine.node_idle_timeout(ctx.run, ctx.node_id))
-    data = parse_cli_output(proc.stdout)
-    stdout_path = ctx.attempt_dir / f"claude-{number:02d}.stdout.json"
+    if copilot:  # texto plano, sin coste ni tokens: se adapta al formato que espera el resto del flujo
+        data = {"result": proc.stdout.strip(), "session_id": opts.session_id, "is_error": not proc.ok}
+    else:
+        data = parse_cli_output(proc.stdout)
+    stdout_path = ctx.attempt_dir / f"{opts.provider}-{number:02d}.stdout.json"
     stdout_path.write_text(redact(proc.stdout), encoding="utf-8")
     usage = (data or {}).get("usage") or {}
     ctx.store.add_invocation(
-        run_id=ctx.run_id, node_id=ctx.node_id, attempt=ctx.attempt, kind=kind, provider="claude",
+        run_id=ctx.run_id, node_id=ctx.node_id, attempt=ctx.attempt, kind=kind, provider=opts.provider,
         model=opts.model, argv=[redact(a) for a in argv], cwd=str(workspace),
         cli_version=await _cli_version(ctx, exe), prompt_path=str(prompt_path),
         stdout_path=str(stdout_path), exit_code=proc.exit_code,
@@ -118,8 +124,12 @@ async def invoke_agent(ctx: ExecContext, *, role: Literal["dev", "validator"], r
                        task: str, data_blocks: list[tuple[str, str]], extra_rules: str = "") -> AgentRun:
     cfg = ctx.config
     settings = ctx.settings
-    model = resolve_model(settings, tier=cfg.get("model_tier", "cheap"), model=cfg.get("model"),
-                          attempt=ctx.attempt)
+    provider = cfg.get("provider", "claude")
+    try:
+        model = resolve_model(settings, tier=cfg.get("model_tier", "cheap"), model=cfg.get("model"),
+                              attempt=ctx.attempt, provider=provider)
+    except ValueError as exc:
+        return AgentRun(session_id="", errors=[str(exc)])
     previous = ctx.store.invocations(ctx.run_id, ctx.node_id)
     if cfg.get("session_mode") == "continue":
         session_id, resume = session_uuid(ctx.run_id, ctx.node_id), bool(previous)
@@ -130,7 +140,7 @@ async def invoke_agent(ctx: ExecContext, *, role: Literal["dev", "validator"], r
         model=model, permission_mode=cfg.get("permission_mode", "acceptEdits"), allowed_tools=tools,
         session_id=session_id, resume=resume, effort=cfg.get("effort"), agent=cfg.get("agent"),
         extra_dirs=list(cfg.get("extra_dirs") or []), max_cost_usd=cfg.get("max_cost_usd"),
-        setting_sources=settings.claude_setting_sources)
+        setting_sources=settings.claude_setting_sources, provider=provider, read_only=role == "validator")
     run = AgentRun(session_id=session_id)
     prompt = build_prompt(language=ctx.plan.settings.language, task=task, data_blocks=data_blocks,
                           result_model=result_model, extra_rules=extra_rules)
@@ -149,7 +159,7 @@ async def invoke_agent(ctx: ExecContext, *, role: Literal["dev", "validator"], r
         if data is None or data.get("is_error"):
             reason = (data or {}).get("subtype") or proc.combined[-300:] or "sin salida"
             run.budget_exceeded = "budget" in str(reason).lower()
-            run.errors.append(f"el CLI de Claude falló: {reason}")
+            run.errors.append(f"el CLI de {opts.provider} falló: {reason}")
             return run
         if "budget" in str(data.get("subtype", "")).lower():
             run.budget_exceeded = True

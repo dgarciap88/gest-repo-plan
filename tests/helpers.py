@@ -36,13 +36,13 @@ def make_settings(tmp_path: Path, **kwargs: Any) -> Settings:
     return Settings(root=tmp_path, data_dir=tmp_path / "data", poll_interval_s=0.01, **kwargs)
 
 
-def make_engine(tmp_path: Path, executors: dict[str, NodeExecutor] | None = None, runner=None,
+def make_engine(tmp_path: Path, executors: dict[str, NodeExecutor] | None = None, runner=None, http=None,
                 **settings_kwargs: Any) -> Engine:
     settings = make_settings(tmp_path, **settings_kwargs)
     store = Store(settings.db_path)
     merged = default_executors()
     merged.update(executors or {})
-    return Engine(store, settings, runner=runner, executors=merged)
+    return Engine(store, settings, runner=runner, executors=merged, http=http)
 
 
 def flow_plan(**overrides: Any) -> dict:

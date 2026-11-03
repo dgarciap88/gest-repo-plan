@@ -1,4 +1,4 @@
-"""Validador de planes (ver DESIGN.md sección 8).
+"""Validador de planes.
 
 Los errores están pensados para que la IA que diseña planes los lea y corrija: cada uno lleva un
 código estable, el nodo y la ruta afectados, y una sugerencia cuando se puede dar.

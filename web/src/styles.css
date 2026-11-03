@@ -589,3 +589,19 @@ details > summary {
 .react-flow__controls-button { background: var(--panel); color: var(--text); border-color: var(--border); }
 .react-flow__controls-button svg { fill: var(--text); }
 .react-flow__minimap { background: var(--panel-2); border: 1px solid var(--border); }
+
+/* Línea temporal */
+.timeline { display: flex; flex-direction: column; gap: 4px; }
+.tl-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 8px; }
+.tl-name { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-track { position: relative; height: 16px; background: var(--panel-2, rgba(128,128,128,.1)); border-radius: 4px; }
+.tl-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; background: var(--info); opacity: .9; }
+.tl-bar.st-succeeded { background: var(--good); }
+.tl-bar.st-failed, .tl-bar.st-cancelled { background: var(--bad); }
+.tl-bar.st-waiting, .tl-bar.st-interrupted { background: var(--warn); }
+
+/* Hijos anidados en el dashboard */
+tr.child-row td:first-child { padding-left: 28px; }
+tr.child-row { background: rgba(128, 128, 128, .06); }
+button.toggle { background: none; border: 0; cursor: pointer; color: inherit; padding: 0 6px 0 0; }
+.btn.small { padding: 2px 8px; font-size: 12px; }

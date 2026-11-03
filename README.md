@@ -3,7 +3,7 @@
 Motor local de **planes de procesos como grafos** (JSON) cuyos nodos ejecutan tareas sobre repositorios y agentes de IA. Diseño completo en [DESIGN.md](DESIGN.md); ideas aplazadas en [NICE_TO_HAVE.md](NICE_TO_HAVE.md).
 
 ## Estado
-Hito Bootstrap (DESIGN.md 15.1) alcanzado con **Claude** como proveedor de IA: el motor ejecuta planes con workspace, agente, validador cruzado, tests, aprobación manual, commit, push y PR, y puede **lanzar planes desde planes** (`implement-tasks`). Incluye un **servidor web** (`gestplan serve`) con API, tiempo real y una UI con React Flow. Falta Jira/Confluence y Copilot (ver 15.2).
+Hito Bootstrap (DESIGN.md 15.1) alcanzado con **Claude** como proveedor de IA: el motor ejecuta planes con workspace, agente, validador cruzado, tests, aprobación manual, commit, push y PR, y puede **lanzar planes desde planes** (`implement-tasks`). Incluye un **servidor web** (`gestplan serve`) con API, tiempo real y una UI con React Flow. Incluye nodos de Jira, Confluence y GitHub (lectura), escaneo de secretos y un adaptador de Copilot sin verificar (ver DESIGN.md 15.2).
 
 ## Servidor web y UI
 ```bash
@@ -12,7 +12,8 @@ gestplan serve                                      # http://127.0.0.1:8765 (API
 ```
 - **Desarrollo de la UI:** con `gestplan serve` en marcha, `cd web && npm run dev` sirve la UI en `http://localhost:5173` con proxy a la API.
 - El servidor mantiene vivos los runs: lanzas planes, ves el grafo moverse y apruebas desde el navegador. Al arrancar marca como interrumpidos los nodos que quedaron en ejecución tras una caída (se reactivan desde la UI).
-- Escucha solo en `127.0.0.1`. La protección frente a páginas web maliciosas está pendiente (NICE_TO_HAVE 1.1).
+- Escucha solo en `127.0.0.1` y rechaza `Host` ajenos, `Origin` distintos y peticiones de escritura sin la cabecera `X-Gestplan`. Con `GP_API_TOKEN` en el `.env` exige además un token: abre `http://127.0.0.1:8765/?token=<valor>` una vez.
+- Con `JIRA_BASE_URL`, `JIRA_EMAIL` y `JIRA_API_TOKEN` (y opcionalmente `CONFLUENCE_*`) en el `.env` se activan los nodos de Atlassian. Mira `.env.example`.
 
 ## Puesta en marcha
 ```bash

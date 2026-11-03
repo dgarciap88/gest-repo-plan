@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from gestplan.envfile import load_env_file
+
 MODEL_TIERS = ("cheap", "standard", "premium")
 
 DEFAULT_COMMAND_ALLOWLIST = (
@@ -62,10 +64,27 @@ class Settings:
     claude_path: str | None = None
     claude_setting_sources: str = "project"
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_CLAUDE_MODELS))
+    copilot_path: str | None = None
+    copilot_models: dict[str, str] = field(default_factory=dict)
+    # Atlassian Cloud (las credenciales viven en el .env, nunca en los planes)
+    jira_base_url: str = ""
+    jira_email: str = ""
+    jira_token: str = ""
+    confluence_base_url: str = ""
+    confluence_email: str = ""
+    confluence_token: str = ""
+    # Seguridad de la API local
+    api_token: str = ""
+    allowed_hosts: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> Settings:
+        load_env_file(Path(os.environ.get("GP_ROOT", ".")) / ".env")
+        env = os.environ.get
         tier = os.environ.get("GP_MAX_MODEL_TIER", "standard")
+        jira_base = env("JIRA_BASE_URL", "").strip().rstrip("/")
+        jira_email, jira_token = env("JIRA_EMAIL", "").strip(), env("JIRA_API_TOKEN", "").strip()
+        copilot_models = {t: env(f"GP_COPILOT_MODEL_{t.upper()}", "").strip() for t in MODEL_TIERS}
         workspaces = os.environ.get("GP_WORKSPACES_DIR", "").strip()
         return cls(
             timeout_cap_s=_env_int("GP_TIMEOUT_CAP_S", cls.timeout_cap_s),
@@ -84,6 +103,17 @@ class Settings:
             env_allowlist=_env_list("GP_ENV_ALLOWLIST", ()),
             claude_path=os.environ.get("GP_CLAUDE_PATH") or None,
             claude_setting_sources=os.environ.get("GP_CLAUDE_SETTING_SOURCES", "project"),
+            copilot_path=env("GP_COPILOT_PATH") or None,
+            copilot_models={t: m for t, m in copilot_models.items() if m},
+            jira_base_url=jira_base,
+            jira_email=jira_email,
+            jira_token=jira_token,
+            confluence_base_url=env("CONFLUENCE_BASE_URL", "").strip().rstrip("/")
+            or (f"{jira_base}/wiki" if jira_base else ""),
+            confluence_email=env("CONFLUENCE_EMAIL", "").strip() or jira_email,
+            confluence_token=env("CONFLUENCE_API_TOKEN", "").strip() or jira_token,
+            api_token=env("GP_API_TOKEN", "").strip(),
+            allowed_hosts=_env_list("GP_ALLOWED_HOSTS", ()),
         )
 
     def tier_allowed(self, tier: str) -> bool:
@@ -96,3 +126,7 @@ class Settings:
     @property
     def db_path(self) -> Path:
         return self.data_dir / "gestplan.db"
+
+    @property
+    def secret_values(self) -> tuple[str, ...]:
+        return tuple(v for v in (self.jira_token, self.confluence_token, self.api_token) if v)

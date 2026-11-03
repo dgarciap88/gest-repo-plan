@@ -19,7 +19,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from gestplan.db import Store
-from gestplan.engine.runner import ProcessRunner, RealRunner
+from gestplan.engine.http import HttpClient, RealHttp
+from gestplan.engine.runner import ProcessRunner, RealRunner, register_secrets
 from gestplan.executors import default_executors
 from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
 from gestplan.nodes.registry import get_node_type
@@ -59,10 +60,13 @@ def new_run_id() -> str:
 
 class Engine:
     def __init__(self, store: Store, settings: Settings, runner: ProcessRunner | None = None,
-                 executors: dict[str, NodeExecutor] | None = None) -> None:
+                 executors: dict[str, NodeExecutor] | None = None, http: HttpClient | None = None) -> None:
         self.store = store
         self.settings = settings
         self.runner: ProcessRunner = runner or RealRunner()
+        self.http: HttpClient = http or RealHttp()
+        self.sleep = asyncio.sleep  # los tests lo sustituyen para no esperar en los reintentos
+        register_secrets(settings.secret_values)
         self.executors = executors if executors is not None else default_executors()
         self.cli_versions: dict[str, str | None] = {}
         self._states: dict[str, RunState] = {}

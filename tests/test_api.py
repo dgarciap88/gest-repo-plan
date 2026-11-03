@@ -11,6 +11,11 @@ from tests.helpers import dev_outcome, flow_plan, make_engine
 from tests.test_engine import standard_executors
 
 
+def local_client(app, **kwargs):
+    """Cliente que se comporta como la UI: host local y cabecera anti-CSRF en las peticiones."""
+    return TestClient(app, base_url="http://127.0.0.1:8765", headers={"X-Gestplan": "1"}, **kwargs)
+
+
 def wait_for(client, url, predicate, timeout=15):
     deadline = time.time() + timeout
     data = None
@@ -27,7 +32,7 @@ def client(tmp_path):
     (tmp_path / "plans").mkdir()
     (tmp_path / "plans" / "flow.json").write_text(json.dumps(flow_plan()), encoding="utf-8")
     engine = make_engine(tmp_path, standard_executors())
-    with TestClient(create_app(engine=engine)) as client:
+    with local_client(create_app(engine=engine)) as client:
         yield client
 
 
@@ -100,6 +105,15 @@ def test_detalle_de_nodo_logs_y_eventos(client):
     assert "id: 1\n" in body
 
 
+def test_linea_temporal_del_run(client):
+    run_id = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
+    wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "waiting")
+    rows = client.get(f"/api/runs/{run_id}/timeline").json()
+    assert [r["node_id"] for r in rows][:2] == ["ws", "dev"] and rows[0]["event"] == "ok"
+    assert all({"started_at", "finished_at", "attempt", "status"} <= set(r) for r in rows)
+    assert client.get("/api/runs/zzz/timeline").status_code == 404
+
+
 def test_errores_de_creacion_de_runs(client):
     assert client.post("/api/runs", json={"plan": "no-existe"}).status_code == 422
     bad = client.post("/api/runs", json={"plan": "flow", "inputs": {"otro": "1"}})
@@ -149,7 +163,7 @@ def test_el_grafo_usa_el_efecto_real_de_los_scripts(tmp_path):
     (tmp_path / "scripts" / "publicar.py").write_text(PUBLICAR, encoding="utf-8")
     (tmp_path / "plans").mkdir()
     (tmp_path / "plans" / "demo.json").write_text(json.dumps(PLAN), encoding="utf-8")
-    with TestClient(create_app(engine=make_engine(tmp_path))) as client:
+    with local_client(create_app(engine=make_engine(tmp_path))) as client:
         nodes = client.get("/api/plans/demo").json()["graph"]["nodes"]
         assert nodes["saludo"]["side_effect"] == "none"  # el META del script manda, no el valor conservador
         assert nodes["publicar"]["side_effect"] == "external"
@@ -162,11 +176,33 @@ def test_se_sirve_la_interfaz_estatica(tmp_path):
     (dist / "index.html").write_text("<html>gestplan-ui</html>", encoding="utf-8")
     (dist / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
     engine = make_engine(tmp_path, standard_executors())
-    with TestClient(create_app(engine=engine)) as client:
+    with local_client(create_app(engine=engine)) as client:
         assert "gestplan-ui" in client.get("/").text
         assert "gestplan-ui" in client.get("/runs/abc").text  # el fallback sirve el SPA
         assert client.get("/assets/app.js").text == "console.log(1)"
         assert client.get("/api/health").status_code == 200  # la API no queda tapada
+
+
+def test_la_api_rechaza_peticiones_de_otras_paginas(tmp_path):
+    engine = make_engine(tmp_path, standard_executors())
+    with TestClient(create_app(engine=engine), base_url="http://127.0.0.1:8765") as client:
+        post = {"plan": "no-existe"}
+        assert client.post("/api/runs", json=post).status_code == 403  # sin cabecera anti-CSRF
+        assert client.post("/api/runs", json=post, headers={"X-Gestplan": "1", "Origin": "http://evil.com"}
+                           ).status_code == 403
+        assert client.post("/api/runs", json=post, headers={"X-Gestplan": "1", "Origin": "http://127.0.0.1:8765"}
+                           ).status_code == 422  # llega al endpoint
+        assert client.get("/api/health", headers={"Host": "evil.com"}).status_code == 403  # DNS rebinding
+        assert client.get("/api/health").status_code == 200
+
+
+def test_token_de_api_opcional(tmp_path):
+    engine = make_engine(tmp_path, standard_executors(), api_token="secreto-123")
+    with local_client(create_app(engine=engine)) as client:
+        assert client.get("/api/health").status_code == 403
+        assert client.get("/api/health", headers={"X-Gestplan-Token": "malo"}).status_code == 403
+        assert client.get("/api/health", headers={"X-Gestplan-Token": "secreto-123"}).status_code == 200
+        assert client.get("/api/events", params={"once": True, "token": "secreto-123"}).status_code == 200
 
 
 def test_dev_outcome_helper_sigue_valido():

@@ -5,6 +5,7 @@ import { api } from '../api'
 import { Graph } from '../components/Graph'
 import { NodePanel } from '../components/NodePanel'
 import { StatusBadge } from '../components/StatusBadge'
+import { Timeline } from '../components/Timeline'
 import { fmtCost, fmtDuration, fmtInputs, fmtTime } from '../format'
 
 export function RunPage() {
@@ -79,6 +80,8 @@ export function RunPage() {
           </aside>
         )}
       </div>
+
+      <Timeline runId={id} onSelect={setSelected} />
 
       {children.length > 0 && (
         <section className="card">

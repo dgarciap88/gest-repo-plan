@@ -34,13 +34,21 @@ def claude_executable(settings: Settings) -> str:
     return str(fallback) if fallback.is_file() else "claude"
 
 
-def resolve_model(settings: Settings, *, tier: str | list[str], model: str | None, attempt: int) -> str:
+def copilot_executable(settings: Settings) -> str:
+    return settings.copilot_path or shutil.which("copilot") or "copilot"
+
+
+def resolve_model(settings: Settings, *, tier: str | list[str], model: str | None, attempt: int,
+                  provider: str = "claude") -> str:
     """Modelo explícito, o el del nivel (con escalado por intento si se da una lista de niveles)."""
     if model:
         return model
     tiers = [tier] if isinstance(tier, str) else list(tier)
     chosen = tiers[min(max(attempt - 1, 0), len(tiers) - 1)]
-    return settings.models[chosen]
+    models = settings.copilot_models if provider == "copilot" else settings.models
+    if chosen not in models:
+        raise ValueError(f"no hay modelo de {provider} configurado para el nivel '{chosen}'")
+    return models[chosen]
 
 
 def session_uuid(run_id: str, node_id: str, attempt: int | None = None) -> str:
@@ -61,6 +69,8 @@ class ClaudeOptions:
     extra_dirs: list[str] = field(default_factory=list)
     max_cost_usd: float | None = None
     setting_sources: str = "project"
+    provider: str = "claude"
+    read_only: bool = False
 
 
 def build_argv(exe: str, opts: ClaudeOptions) -> list[str]:
@@ -77,6 +87,31 @@ def build_argv(exe: str, opts: ClaudeOptions) -> list[str]:
         argv += ["--agent", opts.agent]
     if opts.max_cost_usd:
         argv += ["--max-budget-usd", str(opts.max_cost_usd)]
+    for directory in opts.extra_dirs:
+        argv += ["--add-dir", directory]
+    return argv
+
+
+COPILOT_DENIED = ("shell(git push)", "shell(rm)", "shell(del)")
+COPILOT_DEV_ALLOWED = ("write", "shell(python)", "shell(py)", "shell(pytest)", "shell(git status)",
+                       "shell(git diff)", "shell(git log)")
+COPILOT_READ_ALLOWED = ("shell(git status)", "shell(git diff)", "shell(git log)")
+
+
+def build_copilot_argv(exe: str, opts: ClaudeOptions) -> list[str]:
+    """Copilot CLI sin interacción: el prompt llega por stdin y la respuesta sale como texto plano.
+
+    Sin verificar con modelos reales (no hay acceso): ver DESIGN.md 15.2.
+    """
+    argv = [exe, "--silent", "--model", opts.model, "--resume" if opts.resume else "--session-id", opts.session_id]
+    if opts.effort:
+        argv += ["--reasoning-effort", opts.effort]
+    if opts.agent:
+        argv += ["--agent", opts.agent]
+    for tool in COPILOT_READ_ALLOWED if opts.read_only else COPILOT_DEV_ALLOWED:
+        argv += ["--allow-tool", tool]
+    for tool in COPILOT_DENIED:
+        argv += ["--deny-tool", tool]
     for directory in opts.extra_dirs:
         argv += ["--add-dir", directory]
     return argv

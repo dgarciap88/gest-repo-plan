@@ -13,6 +13,10 @@ _BUILTIN_MODULES = (
     "gestplan.nodes.git",
     "gestplan.nodes.local",
     "gestplan.nodes.flow",
+    "gestplan.nodes.jira",
+    "gestplan.nodes.confluence",
+    "gestplan.nodes.github",
+    "gestplan.nodes.security",
 )
 
 
