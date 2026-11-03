@@ -135,6 +135,23 @@ def render_run(store: Store, run_id: str, indent: str = "") -> str:
     return "\n".join(lines)
 
 
+def run_summary(store: Store, run_id: str) -> dict:
+    """Estado de un run en forma de dict (base de `status --json`)."""
+    run = store.get_run(run_id)
+    assert run is not None
+    return {
+        "id": run["id"],
+        "plan": run["plan_name"],
+        "status": run["status"],
+        "cost_usd": store.total_cost(run_id),
+        # orden por id: la consulta no garantiza orden, así que la salida JSON sería inestable
+        "nodes": {node_id: {"status": node["status"], "attempts": node["attempts"],
+                            "last_event": node["last_event"]}
+                  for node_id, node in sorted(store.all_nodes(run_id).items())},
+        "children": [child["id"] for child in store.children_of(run_id)],
+    }
+
+
 def _drive(engine: Engine, store: Store, run_id: str) -> int:
     try:
         status = asyncio.run(engine.run_until_quiescent(run_id))
@@ -181,9 +198,17 @@ def _cmd_status(args: argparse.Namespace) -> int:
         if store.get_run(args.run_id) is None:
             print(f"No existe el run {args.run_id}")
             return 2
-        print(render_run(store, args.run_id))
+        if args.json:
+            print(json.dumps(run_summary(store, args.run_id), ensure_ascii=False, indent=2))
+        else:
+            print(render_run(store, args.run_id))
         return 0
     runs = store.list_runs(limit=args.limit)
+    if args.json:
+        listing = [{"id": run["id"], "plan": run["plan_name"], "status": run["status"]}
+                   for run in runs if run["parent_run_id"] is None]
+        print(json.dumps(listing, ensure_ascii=False, indent=2))
+        return 0
     if not runs:
         print("No hay runs.")
     for run in runs:
@@ -342,6 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="lista los runs o muestra uno")
     status.add_argument("run_id", nargs="?")
     status.add_argument("--limit", type=int, default=20)
+    status.add_argument("--json", action="store_true", help="salida en JSON (estable, para UI y scripts)")
     common(status)
     status.set_defaults(func=_cmd_status)
 

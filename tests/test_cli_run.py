@@ -96,6 +96,46 @@ def test_cancelar_por_cli(tmp_path, capsys):
     capsys.readouterr()
 
 
+def test_status_json_de_un_run(tmp_path, capsys):
+    common = project(tmp_path)
+    main(["run", "demo", "--input", "texto=buenas", *common])
+    run_id = run_id_from(capsys.readouterr().out)
+
+    assert main(["status", run_id, "--json", *common]) == 0
+    data = json.loads(capsys.readouterr().out)
+    # claves en el orden documentado
+    assert list(data) == ["id", "plan", "status", "cost_usd", "nodes", "children"]
+    assert data["id"] == run_id and data["plan"] == "demo" and data["status"] == "waiting"
+    assert data["cost_usd"] == 0.0
+    assert data["children"] == []
+    assert list(data["nodes"]) == ["ok", "publicar", "saludo"]  # ordenados por id
+    assert data["nodes"]["saludo"] == {"status": "succeeded", "attempts": 1, "last_event": "ok"}
+    assert data["nodes"]["publicar"]["status"] == "pending"
+    assert data["nodes"]["publicar"]["attempts"] == 0
+
+
+def test_status_json_lista_de_runs(tmp_path, capsys):
+    common = project(tmp_path)
+    assert main(["status", "--json", *common]) == 0
+    assert json.loads(capsys.readouterr().out) == []
+
+    main(["run", "demo", *common])
+    run_id = run_id_from(capsys.readouterr().out)
+    assert main(["approvals", "approve", "1", *common]) == 0
+    capsys.readouterr()
+    main(["resume", run_id, *common])
+    capsys.readouterr()
+
+    assert main(["status", "--json", *common]) == 0
+    listing = json.loads(capsys.readouterr().out)
+    assert listing == [{"id": run_id, "plan": "demo", "status": "succeeded"}]
+
+
+def test_status_json_run_inexistente(tmp_path, capsys):
+    common = project(tmp_path)
+    assert main(["status", "zzz", "--json", *common]) == 2
+
+
 def test_errores_de_uso(tmp_path, capsys):
     common = project(tmp_path)
     assert main(["run", "no-existe", *common]) == 2
