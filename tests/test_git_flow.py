@@ -238,3 +238,20 @@ def test_la_vista_previa_del_pr_no_muestra_atribucion_a_una_ia(tmp_path):
     ctx = ExecContext(engine, {"id": "r"}, None, "pr", 1, config, tmp_path / "a")
     preview = asyncio.run(GitCreatePrExec().preview(ctx))
     assert "Contexto del cambio." in preview["text"] and "Claude" not in preview["text"]
+
+
+def test_el_clon_usa_la_identidad_del_proyecto(tmp_path, remote):
+    """GH007: el correo global de la máquina puede ser privado; los commits llevan el configurado."""
+    runner, _ = gh_runner()
+    engine = make_engine(tmp_path, real_executors(writes_file()), runner=runner, workspaces_dir=tmp_path / "ws",
+                         git_user_name="Proyecto", git_user_email="1+proyecto@users.noreply.github.com")
+    data = flow_plan()
+    data["nodes"]["ws"]["config"]["repo_url"] = str(remote[0])
+    run_id = build(engine, data)
+    assert drive(engine, run_id) == "waiting"
+    repo = engine.store.latest_outputs(run_id, "ws")["path"]
+    assert Path(repo).is_absolute()
+    assert git("config", "user.email", cwd=Path(repo)).strip() == "1+proyecto@users.noreply.github.com"
+    approve(engine)
+    drive(engine, run_id)
+    assert git("log", "-1", "--format=%ae", "feature/x", cwd=remote[0]).strip() == "1+proyecto@users.noreply.github.com"

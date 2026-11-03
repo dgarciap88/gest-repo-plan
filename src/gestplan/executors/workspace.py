@@ -50,6 +50,12 @@ class PrepareWorkspaceExec(NodeExecutor):
         if not clone.ok:
             return Outcome("failed", error=f"git clone falló: {clone.combined[-500:]}")
         await git("config", "core.longpaths", "true")
+        # los commits llevan la identidad del proyecto (GP_GIT_USER_*), no la global de la máquina: un correo
+        # privado haría que GitHub rechazara el push (GH007)
+        name, email = await self._identity(ctx, git)
+        if name and email:
+            await git("config", "user.name", name)
+            await git("config", "user.email", email)
 
         base, wanted = cfg["base_branch"], cfg["new_branch"]
         base_ref = await git("rev-parse", "--verify", f"origin/{base}")
@@ -81,7 +87,7 @@ class PrepareWorkspaceExec(NodeExecutor):
             return Outcome("failed", error=f"git checkout falló: {checkout.combined[-300:]}")
 
         outputs = {
-            "path": str(repo),
+            "path": str(repo.resolve()),
             "local_branch": local,
             "remote_branch": remote,
             "branch_existed": existed,
@@ -90,6 +96,16 @@ class PrepareWorkspaceExec(NodeExecutor):
         }
         marker.write_text(json.dumps(outputs, ensure_ascii=False), encoding="utf-8")
         return Outcome("ok", outputs)
+
+
+    @staticmethod
+    async def _identity(ctx: ExecContext, git) -> tuple[str, str]:
+        name, email = ctx.settings.git_user_name, ctx.settings.git_user_email
+        if not (name and email):  # por defecto, la identidad del repositorio desde el que se ejecuta el motor
+            root = ctx.settings.root.resolve()
+            name = name or (await git("config", "user.name", cwd=root)).stdout.strip()
+            email = email or (await git("config", "user.email", cwd=root)).stdout.strip()
+        return name, email
 
 
 class CleanupWorkspaceExec(NodeExecutor):

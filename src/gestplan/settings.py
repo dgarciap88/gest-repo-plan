@@ -75,6 +75,8 @@ class Settings:
     confluence_token: str = ""
     # Seguridad de la API local
     api_token: str = ""
+    git_user_name: str = ""
+    git_user_email: str = ""
     allowed_hosts: tuple[str, ...] = ()
 
     @classmethod
@@ -113,6 +115,8 @@ class Settings:
             confluence_email=env("CONFLUENCE_EMAIL", "").strip() or jira_email,
             confluence_token=env("CONFLUENCE_API_TOKEN", "").strip() or jira_token,
             api_token=env("GP_API_TOKEN", "").strip(),
+            git_user_name=env("GP_GIT_USER_NAME", "").strip(),
+            git_user_email=env("GP_GIT_USER_EMAIL", "").strip(),
             allowed_hosts=_env_list("GP_ALLOWED_HOSTS", ()),
         )
 
