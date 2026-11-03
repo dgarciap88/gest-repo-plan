@@ -109,6 +109,32 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _cmd_plans(args: argparse.Namespace) -> int:
+    """Lista los planes de plans/ y plans/examples/, ordenados por nombre; los no válidos se marcan."""
+    entries: list[tuple[str, str]] = []
+    for folder in (Path(args.root) / "plans", Path(args.root) / "plans" / "examples"):
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.glob("*.json")):
+            plan, issues = load_plan(path)
+            if plan is not None:
+                issues = validate_plan(plan, args.root).issues
+            errors = [i for i in issues if i.severity == "error"]
+            if plan is None or errors:
+                reason = errors[0].message if errors else "no se pudo cargar"
+                entries.append((path.stem, f"{path.stem:<28} [NO VÁLIDO] {reason}"))
+                continue
+            required = [name for name, spec in plan.inputs.items() if spec.required]
+            entries.append((plan.name, f"{plan.name:<28} {len(plan.nodes):>3} nodos  "
+                                       f"obligatorios: {', '.join(required) or '-'}  {plan.description}"))
+    if not entries:
+        print("No hay planes en plans/ ni en plans/examples/.")
+        return 0
+    for _name, line in sorted(entries, key=lambda entry: entry[0]):
+        print(line.rstrip())
+    return 0
+
+
 # --- ejecución --------------------------------------------------------------------------------
 def render_run(store: Store, run_id: str, indent: str = "") -> str:
     run = store.get_run(run_id)
@@ -352,6 +378,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = sub.add_parser("doctor", help="comprueba el entorno")
     doctor.set_defaults(func=_cmd_doctor)
+
+    plans = sub.add_parser("plans", help="lista los planes de plans/ y plans/examples/")
+    common(plans)
+    plans.set_defaults(func=_cmd_plans)
 
     run = sub.add_parser("run", help="lanza un plan (ruta o nombre) y lo ejecuta hasta que termina o espera")
     run.add_argument("plan")
