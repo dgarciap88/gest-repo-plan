@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "name": "implement-jira",
+  "description": "Lee un ticket de Jira (resumen, descripción, comentarios y adjuntos) y lo implementa en un repositorio con un agente de IA (Claude) y validación cruzada (Copilot). Tras la aprobación manual hace commit y push a la rama del ticket, abre un PR si la rama de origen es distinta y comenta el resultado en el ticket",
+  "inputs": {
+    "repo_url": { "type": "string", "required": true, "description": "URL del repositorio" },
+    "jira_id": { "type": "string", "required": true, "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$", "description": "Clave del ticket; es también el nombre de la rama de trabajo" },
+    "source_branch": { "type": "string", "default": "main", "description": "Rama de la que se parte y contra la que va el PR" },
+    "validator_model": { "type": "string", "default": "auto", "description": "Modelo de Copilot del validador (auto = lo elige Copilot)" }
+  },
+  "settings": { "max_agents_parallel": 2, "language": "es", "display_inputs": ["jira_id"] },
+  "nodes": {
+    "ws": {
+      "type": "prepare_workspace",
+      "config": {
+        "repo_url": "${inputs.repo_url}",
+        "base_branch": "${inputs.source_branch}",
+        "new_branch": "${inputs.jira_id}"
+      }
+    },
+    "issue": {
+      "type": "jira.get_issue",
+      "config": { "key": "${inputs.jira_id}" }
+    },
+    "comments": {
+      "type": "jira.get_comments",
+      "config": { "key": "${inputs.jira_id}", "max_results": 50 }
+    },
+    "attachments": {
+      "type": "jira.get_attachments",
+      "config": {
+        "key": "${inputs.jira_id}",
+        "workspace": "${nodes.ws.outputs.path}",
+        "directory": "../attachments"
+      }
+    },
+    "dev": {
+      "type": "ia_agent",
+      "max_attempts": 4,
+      "config": {
+        "provider": "claude",
+        "model_tier": ["cheap", "standard"],
+        "workspace": "${nodes.ws.outputs.path}",
+        "extra_dirs": ["${nodes.attachments.outputs.directory}"],
+        "prompt_template": "templates/prompts/implement-jira.md",
+        "variables": {
+          "jira_id": "${inputs.jira_id}",
+          "feedback": "${nodes.val.outputs.feedback}"
+        },
+        "data": {
+          "Resumen del ticket": "Clave: ${inputs.jira_id}\nResumen: ${nodes.issue.outputs.summary}\nTipo: ${nodes.issue.outputs.issue_type}\nPrioridad: ${nodes.issue.outputs.priority}\nEtiquetas: ${nodes.issue.outputs.labels}",
+          "Descripción del ticket": "${nodes.issue.outputs.description}",
+          "Comentarios del ticket": "${nodes.comments.outputs.text}",
+          "Adjuntos (carpeta ${nodes.attachments.outputs.directory})": "${nodes.attachments.outputs.listing}"
+        },
+        "max_cost_usd": 2.0
+      }
+    },
+    "val": {
+      "type": "ia_agent_validator",
+      "config": {
+        "provider": "copilot",
+        "model": "${inputs.validator_model}",
+        "workspace": "${nodes.ws.outputs.path}",
+        "prompt_template": "templates/prompts/validate-jira.md",
+        "variables": { "jira_id": "${inputs.jira_id}" },
+        "data": {
+          "Resumen del ticket": "Resumen: ${nodes.issue.outputs.summary}",
+          "Descripción del ticket": "${nodes.issue.outputs.description}",
+          "Comentarios del ticket": "${nodes.comments.outputs.text}"
+        },
+        "max_retries": 2
+      }
+    },
+    "scan": {
+      "type": "secret_scan",
+      "config": { "workspace": "${nodes.ws.outputs.path}" }
+    },
+    "commit": {
+      "type": "git.commit",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "subject": "${nodes.dev.outputs.suggested_commit_subject}",
+        "body": "${nodes.dev.outputs.suggested_commit_body}"
+      }
+    },
+    "approval": {
+      "type": "manual_approval",
+      "config": {
+        "approves": ["push", "pr", "comment_pr", "comment_push"],
+        "message": "Revisa los cambios, el commit, el PR (si la rama del ticket difiere de la de origen) y el comentario que se publicará en el ticket"
+      }
+    },
+    "push": {
+      "type": "git.push",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "remote_branch": "${nodes.ws.outputs.remote_branch}"
+      }
+    },
+    "same_branch": {
+      "type": "route",
+      "config": {
+        "cases": [
+          { "event": "same_branch", "when": { "path": "inputs.source_branch", "op": "eq", "value": "${inputs.jira_id}" } }
+        ],
+        "default": "other_branch"
+      }
+    },
+    "pr": {
+      "type": "git.create_pr",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "base_branch": "${inputs.source_branch}",
+        "head_branch": "${nodes.ws.outputs.remote_branch}",
+        "title": "${nodes.dev.outputs.suggested_pr_title}",
+        "body": "${nodes.dev.outputs.suggested_pr_body}"
+      }
+    },
+    "comment_pr": {
+      "type": "jira.comment",
+      "config": {
+        "key": "${inputs.jira_id}",
+        "body": "Se ha abierto un PR con la implementación: ${nodes.pr.outputs.pr_url}\n\n${nodes.dev.outputs.summary}"
+      }
+    },
+    "comment_push": {
+      "type": "jira.comment",
+      "config": {
+        "key": "${inputs.jira_id}",
+        "body": "Se han publicado los cambios en la rama `${nodes.ws.outputs.remote_branch}`.\n\n${nodes.dev.outputs.summary}"
+      }
+    },
+    "cleanup": {
+      "type": "cleanup_workspace",
+      "join": "any",
+      "config": { "workspace": "${nodes.ws.outputs.path}" }
+    }
+  },
+  "edges": [
+    { "from": "ws.ok", "to": "attachments" },
+    { "from": "attachments.ok", "to": "dev" },
+    { "from": "issue.ok", "to": "dev" },
+    { "from": "comments.ok", "to": "dev" },
+    { "from": "dev.done", "to": "val" },
+    { "from": "val.changes_requested", "to": "dev" },
+    { "from": "val.approved", "to": "scan" },
+    { "from": "val.max_retries_reached", "to": "scan" },
+    { "from": "val.no_progress", "to": "scan" },
+    { "from": "scan.clean", "to": "commit" },
+    { "from": "commit.ok", "to": "approval" },
+    { "from": "approval.approved", "to": "push" },
+    { "from": "push.ok", "to": "same_branch" },
+    { "from": "same_branch.other_branch", "to": "pr" },
+    { "from": "same_branch.same_branch", "to": "comment_push" },
+    { "from": "pr.ok", "to": "comment_pr" },
+    { "from": "comment_pr.ok", "to": "cleanup" },
+    { "from": "comment_pr.already_done", "to": "cleanup" },
+    { "from": "comment_push.ok", "to": "cleanup" },
+    { "from": "comment_push.already_done", "to": "cleanup" }
+  ]
+}

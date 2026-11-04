@@ -55,7 +55,8 @@ def graph_view(plan: Plan, root: Path | None = None, settings: Any = None) -> di
             "max_attempts": spec.max_attempts,
         }
     edges = [{"from": s, "event": e, "to": d, "back": (s, d) in back} for s, e, d in graph.edges]
-    return {"nodes": nodes, "edges": edges, "layout": compute_layout(plan, graph)}
+    custom = bool(plan.layout) and set(plan.layout) >= set(plan.nodes)
+    return {"nodes": nodes, "edges": edges, "layout": compute_layout(plan, graph), "custom_layout": custom}
 
 
 def _node_states(engine: Engine, run_id: str) -> dict[str, Any]:

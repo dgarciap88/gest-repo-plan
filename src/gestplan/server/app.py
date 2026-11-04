@@ -68,6 +68,12 @@ class RunCreate(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
 
 
+class Cleanup(BaseModel):
+    older_than_days: int = 0
+    statuses: list[Literal["succeeded", "failed", "cancelled"]] = Field(
+        default_factory=lambda: ["succeeded", "failed", "cancelled"])
+
+
 class Decision(BaseModel):
     decision: Literal["approved", "rejected"]
     comment: str | None = None
@@ -176,6 +182,36 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
         if detail is None:
             raise HTTPException(404, f"no existe el run {run_id}")
         return detail
+
+    # --- mantenimiento -----------------------------------------------------------------------
+    def _cleanup_args(older_than_days: int, statuses: str) -> tuple[int, tuple[str, ...]]:
+        chosen = tuple(x for x in statuses.split(",") if x in ("succeeded", "failed", "cancelled"))
+        if not chosen:
+            raise HTTPException(422, "indica al menos un estado: succeeded, failed o cancelled")
+        return max(older_than_days, 0), chosen
+
+    @app.get("/api/maintenance/runs")
+    async def cleanup_preview(older_than_days: int = 0, statuses: str = "succeeded,failed,cancelled") -> dict[str, Any]:
+        days, chosen = _cleanup_args(older_than_days, statuses)
+        found = eng().cleanup_candidates(days, chosen)
+        return {"count": len(found), "runs_total": sum(len(r["family"]) for r in found),
+                "runs": [{k: v for k, v in r.items() if k != "family"} for r in found[:50]]}
+
+    @app.post("/api/maintenance/runs/cleanup")
+    async def cleanup(body: Cleanup) -> dict[str, Any]:
+        days, chosen = _cleanup_args(body.older_than_days, ",".join(body.statuses))
+        found = eng().cleanup_candidates(days, chosen)
+        result = eng().delete_runs([r["id"] for r in found])
+        return {"deleted_roots": len(found), **result}
+
+    @app.delete("/api/runs/{run_id}")
+    async def delete_run(run_id: str) -> dict[str, Any]:
+        if eng().store.get_run(run_id) is None:
+            raise HTTPException(404, "run no encontrado")
+        candidate = next((r for r in eng().cleanup_candidates() if r["id"] == run_id), None)
+        if candidate is None:
+            raise HTTPException(409, "solo se pueden borrar runs raíz terminados, sin aprobaciones pendientes")
+        return eng().delete_runs([run_id])
 
     @app.get("/api/runs/{run_id}/timeline")
     async def timeline(run_id: str) -> list[dict[str, Any]]:

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type RunSummary, api } from '../api'
+import { CleanupPanel } from '../components/CleanupPanel'
 import { StatusBadge } from '../components/StatusBadge'
 import { fmtAgo, fmtCost, fmtDuration, fmtInputs, fmtTime } from '../format'
 
@@ -65,6 +66,7 @@ function RunRow({ run, depth = 0 }: { run: RunSummary; depth?: number }) {
 export function Dashboard() {
   const [status, setStatus] = useState('')
   const [q, setQ] = useState('')
+  const [cleaning, setCleaning] = useState(false)
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const runs = useQuery({ queryKey: ['runs', status, q], queryFn: () => api.runs({ status, q }), refetchInterval: 30000 })
   const attention = (runs.data ?? []).filter((r) => r.pending_approvals > 0 || r.status === 'failed')
@@ -112,6 +114,8 @@ export function Dashboard() {
         </section>
       )}
 
+      {cleaning && <CleanupPanel onClose={() => setCleaning(false)} />}
+
       <section className="card">
         <div className="toolbar">
           <h2>Runs</h2>
@@ -122,6 +126,9 @@ export function Dashboard() {
               </button>
             ))}
             <input placeholder="Buscar por id o input…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <button className="btn small" onClick={() => setCleaning(!cleaning)} title="Borrar runs terminados">
+              🧹 Limpiar…
+            </button>
           </div>
         </div>
         {runs.isLoading ? (

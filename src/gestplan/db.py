@@ -122,6 +122,7 @@ CREATE TABLE executions (
 );
 """
 
+RUN_TABLES = ("node_states", "node_attempts", "approvals", "transitions", "invocations", "executions")
 JSON_COLUMNS = {
     "runs": {"plan_snapshot", "inputs"},
     "node_attempts": {"resolved_config", "outputs"},
@@ -221,6 +222,19 @@ class Store:
             return self._many("runs", "SELECT * FROM runs WHERE status=? ORDER BY created_at DESC, id DESC LIMIT ?",
                               (status, limit))
         return self._many("runs", "SELECT * FROM runs ORDER BY created_at DESC, id DESC LIMIT ?", (limit,))
+
+    def delete_runs(self, run_ids: list[str]) -> None:
+        """Borra runs con todo su histórico (nodos, intentos, aprobaciones, auditoría). No se puede deshacer."""
+        self.conn.execute("BEGIN")
+        try:
+            for run_id in run_ids:
+                for table in RUN_TABLES:
+                    self.conn.execute(f"DELETE FROM {table} WHERE run_id=?", (run_id,))
+                self.conn.execute("DELETE FROM runs WHERE id=?", (run_id,))
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
 
     def children_of(self, run_id: str) -> list[Row]:
         return self._many("runs", "SELECT * FROM runs WHERE parent_run_id=? ORDER BY parent_index, id", (run_id,))

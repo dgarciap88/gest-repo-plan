@@ -12,7 +12,7 @@ import os
 import secrets
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ from gestplan.engine.http import HttpClient, RealHttp
 from gestplan.engine.runner import ProcessRunner, RealRunner, register_secrets
 from gestplan.executors import default_executors
 from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
+from gestplan.executors.workspace import remove_tree
 from gestplan.nodes.registry import get_node_type
 from gestplan.plans.graph import PlanGraph
 from gestplan.plans.inputs import resolve_inputs
@@ -273,6 +274,42 @@ class Engine:
         for child in self.store.children_of(run_id):
             ids.extend(self._family(child["id"]))
         return ids
+
+    # ------------------------------------------------------------------ limpieza -----------
+    def cleanup_candidates(self, older_than_days: int = 0,
+                           statuses: tuple[str, ...] = TERMINAL_RUN) -> list[dict]:
+        """Runs raíz terminados que se pueden borrar: toda su familia terminada y sin aprobaciones pendientes."""
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days) if older_than_days > 0 else None
+        pending = {a["run_id"] for a in self.store.list_approvals("pending")}
+        found = []
+        for run in self.store.list_runs(limit=100000):
+            if run["parent_run_id"] is not None or run["status"] not in statuses or run["status"] not in TERMINAL_RUN:
+                continue
+            if cutoff and datetime.fromisoformat(run["finished_at"] or run["created_at"]) > cutoff:
+                continue
+            family = self._family(run["id"])
+            if any((self.store.get_run(r) or {}).get("status") not in TERMINAL_RUN or r in pending for r in family):
+                continue
+            found.append({"id": run["id"], "plan_name": run["plan_name"], "status": run["status"],
+                          "finished_at": run["finished_at"], "family": family})
+        return found
+
+    def delete_runs(self, run_ids: list[str]) -> dict[str, int]:
+        """Borra los runs indicados (y sus hijos) de la BD y del disco (logs y workspaces). Irreversible."""
+        family: list[str] = []
+        for run_id in run_ids:
+            family.extend(self._family(run_id))
+        self.store.delete_runs(family)
+        failed = 0
+        for run_id in family:
+            self._states.pop(run_id, None)
+            for folder in (self.settings.data_dir / "runs" / run_id, self.settings.workspaces_root / run_id):
+                try:
+                    if folder.exists():
+                        remove_tree(folder)
+                except OSError:
+                    failed += 1
+        return {"runs": len(family), "folders_failed": failed}
 
     async def run_until_quiescent(self, run_id: str) -> str:
         if (self.store.get_run(run_id) or {}).get("status") == "queued":

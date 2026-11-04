@@ -613,3 +613,8 @@ button.toggle { background: none; border: 0; cursor: pointer; color: inherit; pa
 .last.warn { color: var(--warn); }
 .last.info { color: var(--info); }
 .last.dim { color: var(--text-dim); }
+
+/* Herramientas del grafo */
+.graph { position: relative; }
+.graph-tools { position: absolute; z-index: 5; top: 8px; left: 8px; display: flex; gap: 6px; align-items: center;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; }

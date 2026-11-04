@@ -124,6 +124,38 @@ def test_el_ultimo_estado_del_run_se_resume_en_una_frase(client):
     assert cancelled["run"]["last"]["text"] == "Cancelado"
 
 
+def test_limpiar_runs_antiguos(client, tmp_path):
+    done = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
+    wait_for(client, f"/api/runs/{done}", lambda d: d["run"]["status"] == "waiting")
+    approval_id = client.get("/api/approvals").json()[0]["id"]
+    client.post(f"/api/approvals/{approval_id}/decision", json={"decision": "approved"})
+    wait_for(client, f"/api/runs/{done}", lambda d: d["run"]["status"] == "succeeded")
+    waiting = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
+    wait_for(client, f"/api/runs/{waiting}", lambda d: d["run"]["status"] == "waiting")
+    run_dir = tmp_path / "data" / "runs" / done
+    assert run_dir.is_dir()
+
+    # un run en espera (con aprobación pendiente) nunca es candidato
+    preview = client.get("/api/maintenance/runs").json()
+    assert [r["id"] for r in preview["runs"]] == [done] and preview["count"] == 1
+    assert client.get("/api/maintenance/runs", params={"older_than_days": 7}).json()["count"] == 0  # es reciente
+    assert client.get("/api/maintenance/runs", params={"statuses": "failed"}).json()["count"] == 0
+    assert client.get("/api/maintenance/runs", params={"statuses": "otro"}).status_code == 422
+    assert client.delete(f"/api/runs/{waiting}").status_code == 409
+    assert client.delete("/api/runs/zzz").status_code == 404
+
+    result = client.post("/api/maintenance/runs/cleanup", json={"older_than_days": 0}).json()
+    assert result["deleted_roots"] == 1 and result["runs"] == 1
+    assert client.get(f"/api/runs/{done}").status_code == 404 and not run_dir.exists()
+    assert [r["id"] for r in client.get("/api/runs").json()] == [waiting]
+    assert client.get("/api/events", params={"after": 0, "once": True}).status_code == 200  # el canal sigue vivo
+
+    client.post(f"/api/runs/{waiting}/cancel")
+    wait_for(client, f"/api/runs/{waiting}", lambda d: d["run"]["status"] == "cancelled")
+    assert client.delete(f"/api/runs/{waiting}").status_code == 200
+    assert client.get("/api/runs").json() == []
+
+
 def test_linea_temporal_del_run(client):
     run_id = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
     wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "waiting")

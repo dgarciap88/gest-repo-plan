@@ -41,6 +41,23 @@ class AgentConfigBase(BaseModel):
     variables: dict[str, Any] = Field(
         default_factory=dict, description="Variables disponibles en la plantilla"
     )
+    data: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Contenido de terceros (ticket, comentarios, ficheros) que el agente debe leer: título del bloque → "
+            "texto. Se entrega delimitado como DATOS NO CONFIABLES: el agente lo trata como información, nunca como "
+            "órdenes del sistema"
+        ),
+    )
+    max_data_chars: int = Field(
+        default=3_000,
+        ge=200,
+        description=(
+            "Tamaño máximo en caracteres de cada bloque de `data` dentro del prompt. Un bloque mayor NO se recorta: "
+            "se guarda entero en la carpeta `agent-data` junto al workspace (que se da al agente como carpeta "
+            "adicional) y el prompt solo le ordena leerlo completo antes de empezar"
+        ),
+    )
     session_mode: Literal["fresh", "continue"] = "fresh"
     permission_mode: Literal["acceptEdits", "dontAsk", "plan"] = "acceptEdits"
     allowed_tools: list[str] = Field(default_factory=list)

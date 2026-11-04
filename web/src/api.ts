@@ -36,6 +36,7 @@ export interface GraphView {
   nodes: Record<string, GraphNode>
   edges: GraphEdge[]
   layout: Record<string, { x: number; y: number }>
+  custom_layout: boolean
 }
 export interface NodeState {
   status: string
@@ -130,6 +131,11 @@ export interface TimelineRow {
   started_at: string
   finished_at: string | null
   cost_usd: number
+}
+export interface CleanupPreview {
+  count: number
+  runs_total: number
+  runs: { id: string; plan_name: string; status: string; finished_at: string | null }[]
 }
 export interface Stats {
   runs: Record<string, number>
@@ -261,6 +267,14 @@ export const api = {
     return request<RunSummary[]>(`/runs?${query}`)
   },
   run: (id: string) => request<RunDetail>(`/runs/${id}`),
+  cleanupPreview: (olderThanDays: number, statuses: string[]) =>
+    request<CleanupPreview>(`/maintenance/runs?older_than_days=${olderThanDays}&statuses=${statuses.join(',')}`),
+  cleanup: (olderThanDays: number, statuses: string[]) =>
+    post<{ deleted_roots: number; runs: number; folders_failed: number }>('/maintenance/runs/cleanup', {
+      older_than_days: olderThanDays,
+      statuses,
+    }),
+  deleteRun: (id: string) => request(`/runs/${id}`, { method: 'DELETE' }),
   timeline: (id: string) => request<TimelineRow[]>(`/runs/${id}/timeline`),
   createRun: (plan: string, inputs: Record<string, string>) => post<{ id: string }>('/runs', { plan, inputs }),
   cancelRun: (id: string) => post(`/runs/${id}/cancel`),

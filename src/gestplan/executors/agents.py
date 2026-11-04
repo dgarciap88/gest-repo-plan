@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import re
+import unicodedata
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -137,10 +140,14 @@ async def invoke_agent(ctx: ExecContext, *, role: Literal["dev", "validator"], r
     else:
         session_id, resume = session_uuid(ctx.run_id, ctx.node_id, ctx.attempt), False
     tools = tuple(cfg.get("allowed_tools") or (DEV_TOOLS if role == "dev" else VALIDATOR_TOOLS))
+    extra_dirs = list(cfg.get("extra_dirs") or [])
+    spill = spill_dir(cfg["workspace"])
+    if spill.is_dir() and str(spill) not in extra_dirs:  # hay bloques volcados a fichero: el agente debe poder leerlos
+        extra_dirs.append(str(spill))
     opts = ClaudeOptions(
         model=model, permission_mode=cfg.get("permission_mode", "acceptEdits"), allowed_tools=tools,
         session_id=session_id, resume=resume, effort=cfg.get("effort"), agent=cfg.get("agent"),
-        extra_dirs=list(cfg.get("extra_dirs") or []), max_cost_usd=cfg.get("max_cost_usd"),
+        extra_dirs=extra_dirs, max_cost_usd=cfg.get("max_cost_usd"),
         setting_sources=settings.claude_setting_sources, provider=provider, read_only=role == "validator")
     run = AgentRun(session_id=session_id)
     prompt = build_prompt(language=ctx.plan.settings.language, task=task, data_blocks=data_blocks,
@@ -183,6 +190,48 @@ async def invoke_agent(ctx: ExecContext, *, role: Literal["dev", "validator"], r
     return run
 
 
+SPILL_DIR = "agent-data"
+DEFAULT_MAX_DATA_CHARS = 3_000
+# Un bloque grande no se recorta (el agente podría no ir a buscar el resto): pasa entero a un fichero y el prompt
+# solo lleva la orden explícita de leerlo.
+_FILE_NOTE = {
+    "es": ("Este bloque tiene {chars} caracteres, demasiado para ir en el prompt. Su contenido COMPLETO está en el "
+           "fichero:\n\n{path}\n\nLéelo ENTERO con tu herramienta de lectura antes de empezar y aplica lo que dice. "
+           "No continúes sin haberlo leído."),
+    "en": ("This block has {chars} characters, too many for the prompt. Its FULL content is in the file:\n\n{path}\n\n"
+           "Read it ENTIRELY with your read tool before starting and apply what it says. Do not continue without "
+           "having read it."),
+}
+
+
+def spill_dir(workspace: str | Path) -> Path:
+    """Carpeta (fuera del repositorio) donde van los bloques de datos que no caben en el prompt."""
+    return Path(workspace).resolve().parent / SPILL_DIR
+
+
+def _data_blocks(ctx: ExecContext) -> list[tuple[str, str]]:
+    """Bloques de datos no confiables del nodo. Los vacíos se omiten; los que superan `max_data_chars` se guardan
+    enteros en un fichero y el prompt solo indica dónde está y que debe leerse completo."""
+    limit = int(ctx.config.get("max_data_chars", DEFAULT_MAX_DATA_CHARS))
+    lang = ctx.plan.settings.language if ctx.plan.settings.language in _FILE_NOTE else "es"
+    blocks: list[tuple[str, str]] = []
+    for title, raw in (ctx.config.get("data") or {}).items():
+        text = str(raw)
+        if not text.strip():
+            continue
+        if len(text) > limit:
+            folder = spill_dir(ctx.config["workspace"])
+            folder.mkdir(parents=True, exist_ok=True)
+            ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+            slug = re.sub(r"[^A-Za-z0-9]+", "-", ascii_title).strip("-").lower()[:40] or "datos"
+            path = folder / f"{ctx.node_id}-{slug}.md"
+            path.write_text(text, encoding="utf-8")
+            ctx.log(f"bloque de datos '{title}' ({len(text)} caracteres) pasado a fichero: {path}")
+            text = _FILE_NOTE[lang].format(chars=len(text), path=path)
+        blocks.append((title, text))
+    return blocks
+
+
 def _task_text(ctx: ExecContext) -> str:
     cfg = ctx.config
     variables = cfg.get("variables") or {}
@@ -221,7 +270,8 @@ class IaAgentExec(NodeExecutor):
     type = "ia_agent"
 
     async def run(self, ctx: ExecContext) -> Outcome:
-        agent = await invoke_agent(ctx, role="dev", result_model=DevResult, task=_task_text(ctx), data_blocks=[],
+        agent = await invoke_agent(ctx, role="dev", result_model=DevResult, task=_task_text(ctx),
+                                   data_blocks=_data_blocks(ctx),
                                    extra_rules=("`suggested_commit_subject`: una línea, en imperativo, "
                                                 "descriptiva, de 10 a 72 caracteres."))
         if agent.result is None:
@@ -256,6 +306,7 @@ class IaAgentValidatorExec(NodeExecutor):
             diff_text = diff_text[:MAX_DIFF_CHARS] + "\n[... diff truncado ...]"
         blocks = [("Cambios del workspace (git diff)", diff_text or "(sin cambios)"),
                   ("Estado (git status)", status.stdout or "(limpio)")]
+        blocks += _data_blocks(ctx)
         if cfg.get("criteria"):
             blocks.append(("Criterios de aceptación", str(cfg["criteria"])))
         agent = await invoke_agent(

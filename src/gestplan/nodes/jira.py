@@ -87,6 +87,7 @@ class JiraGetAttachments(NodeType):
         files: list[str]
         skipped: list[str]
         directory: str
+        listing: str
 
 
 @register

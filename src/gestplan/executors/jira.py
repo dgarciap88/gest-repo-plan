@@ -125,6 +125,7 @@ class JiraGetAttachmentsExec(JiraBase):
         cfg = ctx.settings
         files: list[str] = []
         skipped: list[str] = []
+        target.mkdir(parents=True, exist_ok=True)  # siempre existe: puede pasarse como carpeta adicional al agente
         for item in data.get("fields", {}).get("attachment", []):
             name = re.sub(r"[^\w.\- ]", "_", item.get("filename", "adjunto")) or "adjunto"
             if item.get("size", 0) > limit or not item.get("content"):
@@ -136,10 +137,12 @@ class JiraGetAttachmentsExec(JiraBase):
             if not result.ok:
                 skipped.append(name)
                 continue
-            target.mkdir(parents=True, exist_ok=True)
             (target / name).write_bytes(result.body)
             files.append(str(Path(ctx.config["directory"]) / name))
-        return Outcome("ok", {"files": files, "skipped": skipped, "directory": str(target)})
+        notes = (f"{name} (omitido: demasiado grande o no descargable)" for name in skipped)
+        listing = "\n".join([*files, *notes])
+        return Outcome("ok", {"files": files, "skipped": skipped, "directory": str(target.resolve()),
+                              "listing": listing})
 
 
 class JiraAssignExec(JiraBase):
