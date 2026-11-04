@@ -15,6 +15,16 @@ if TYPE_CHECKING:
     from gestplan.plans.models import NodeSpec, Plan
 
 
+@dataclass(frozen=True)
+class Artifact:
+    """Algo que el nodo ha creado fuera de gestplan (un PR, un ticket, una página...)."""
+
+    kind: str  # uno de los declarados por el tipo de nodo
+    title: str
+    url: str = ""
+    ref: str = ""  # identificador externo (KAN-5, 3, id de página, nombre de rama); evita duplicados al repetir
+
+
 @dataclass
 class Outcome:
     event: str = ""
@@ -22,6 +32,7 @@ class Outcome:
     error: str | None = None
     cost_usd: float = 0.0
     waiting: str | None = None  # "approval" | "external": el nodo queda esperando
+    artifacts: list[Artifact] = field(default_factory=list)
 
 
 class NodeExecutor:

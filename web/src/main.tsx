@@ -6,6 +6,7 @@ import './styles.css'
 import { Layout } from './components/Layout'
 import { Approvals } from './pages/Approvals'
 import { CatalogPage } from './pages/Catalog'
+import { ArtifactsPage } from './pages/Artifacts'
 import { ConfigPage } from './pages/Config'
 import { Dashboard } from './pages/Dashboard'
 import { PlanEditor } from './pages/PlanEditor'
@@ -30,6 +31,7 @@ const router = createHashRouter([
       { path: '/plans/:name/edit', element: <PlanEditor /> },
       { path: '/plans/:name', element: <PlanPage /> },
       { path: '/catalog', element: <CatalogPage /> },
+      { path: '/artifacts', element: <ArtifactsPage /> },
       { path: '/config', element: <ConfigPage /> },
     ],
   },

@@ -77,6 +77,7 @@ def _node_entry(node_type: type[NodeType]) -> dict[str, Any]:
         "description": node_type.description,
         "side_effect": node_type.side_effect,
         "events": [e.model_dump() for e in node_type.events],
+        "artifacts": [a.model_dump() for a in node_type.artifacts],
         "config_schema": config,
         "outputs_schema": outputs,
         "config_fields": _fields(config, name, "config"),
@@ -156,6 +157,9 @@ def render_markdown(catalog: dict[str, Any]) -> str:
             out += [f"- `{e['name']}`{' (fallo)' if e['failure'] else ''}: {e['description']}" for e in node["events"]]
         else:
             out.append("- Los define la configuración del nodo (explicado en su descripción).")
+        if node["artifacts"]:
+            out += ["", "**Artefactos externos que deja creados** (se ven en el run y en la página Artefactos)", ""]
+            out += [f"- `{a['kind']}`: {a['description']}" for a in node["artifacts"]]
         out += ["", "**Configuración**", ""] + _table(node["config_fields"])
         for structure in node["config_structures"]:
             out += ["", f"Estructura `{structure['name']}`:", ""] + _table(structure["fields"])

@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gestplan.nodes.base import NodeType, event
+from gestplan.nodes.base import NodeType, artifact, event
 from gestplan.nodes.common import TInt
 from gestplan.nodes.registry import register
 
@@ -126,6 +126,7 @@ class JiraComment(NodeType):
     )
     events = (event("ok", "Comentario creado"), event("already_done", "Este run ya comentó en el ticket"),
               _NOT_FOUND, _FAILED)
+    artifacts = (artifact("comment", "Comentario publicado en el ticket"),)
     example = {"key": "${inputs.jira_id}", "body": "PR creado: ${nodes.pr.outputs.pr_url}"}
 
     class ConfigModel(_KeyConfig):
@@ -177,6 +178,7 @@ class JiraCreateSubtask(NodeType):
     )
     events = (event("ok", "Subtareas creadas (o ya existentes)"),
               event("no_subtask_type", "El proyecto no tiene un tipo de subtarea", failure=True), _NOT_FOUND, _FAILED)
+    artifacts = (artifact("subtask", "Una subtarea por cada elemento de subtasks"),)
     example = {"key": "${inputs.jira_id}", "subtasks": [{"summary": "Escribir tests"}]}
 
     class ConfigModel(_KeyConfig):
@@ -205,6 +207,7 @@ class JiraCreateIssue(NodeType):
         event("not_found", "El proyecto no existe o no hay permiso para verlo", failure=True),
         event("failed", "La llamada a Jira falló", failure=True),
     )
+    artifacts = (artifact("issue", "Ticket creado en el proyecto"),)
     example = {"project": "KAN", "issue_type": "Task", "summary": "Revisar ${inputs.tema}", "labels": ["gestplan"]}
 
     class ConfigModel(BaseModel):

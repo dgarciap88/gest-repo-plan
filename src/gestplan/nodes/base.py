@@ -28,6 +28,15 @@ def event(name: str, description: str, failure: bool = False) -> EventSpec:
     return EventSpec(name=name, description=description, failure=failure)
 
 
+class ArtifactSpec(BaseModel):
+    kind: str
+    description: str
+
+
+def artifact(kind: str, description: str) -> ArtifactSpec:
+    return ArtifactSpec(kind=kind, description=description)
+
+
 class EmptyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -39,6 +48,8 @@ class NodeType:
     description: ClassVar[str]
     side_effect: ClassVar[SideEffect] = "none"
     events: ClassVar[tuple[EventSpec, ...]] = ()
+    # Lo que el nodo deja creado fuera de gestplan (PR, ticket, página, rama...); se ve en el run y en /artifacts
+    artifacts: ClassVar[tuple[ArtifactSpec, ...]] = ()
     ConfigModel: ClassVar[type[BaseModel]] = EmptyConfig
     OutputsModel: ClassVar[type[BaseModel]] = EmptyConfig
     example: ClassVar[dict[str, Any]] = {}

@@ -5,6 +5,7 @@ import { api } from '../api'
 import { Graph } from '../components/Graph'
 import { NodePanel } from '../components/NodePanel'
 import { StatusBadge } from '../components/StatusBadge'
+import { RunArtifacts } from '../components/Artifacts'
 import { Timeline } from '../components/Timeline'
 import { fmtAgo, fmtCost, fmtDuration, fmtInputs, fmtTime } from '../format'
 
@@ -84,6 +85,8 @@ export function RunPage() {
           </aside>
         )}
       </div>
+
+      <RunArtifacts runId={id} />
 
       <Timeline runId={id} onSelect={setSelected} />
 

@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
+from gestplan.executors.base import Artifact, ExecContext, NodeExecutor, Outcome
 from gestplan.executors.policy import check_commit_message, check_pr_message, strip_ai_trailers
 
 _REJECTED_HINTS = ("rejected", "non-fast-forward", "fetch first", "gh007", "protected branch", "denied")
@@ -53,6 +53,12 @@ class GitCommitExec(NodeExecutor):
         return Outcome("ok", {"commit_sha": sha, "subject": subject})
 
 
+def branch_url(remote_url: str, branch: str) -> str:
+    """Enlace a una rama de GitHub a partir de la URL del remoto (vacío si no es de GitHub)."""
+    found = re.match(r"^(?:https?://(?:[^@/]+@)?github\.com/|git@github\.com:)(.+?)(?:\.git)?/?$", remote_url.strip())
+    return f"https://github.com/{found.group(1)}/tree/{branch}" if found else ""
+
+
 class GitPushExec(NodeExecutor):
     type = "git.push"
 
@@ -73,7 +79,8 @@ class GitPushExec(NodeExecutor):
         head = (await _git(ctx, cwd, "rev-parse", "HEAD")).stdout.strip()
         remote_ref = await _git(ctx, cwd, "ls-remote", remote, f"refs/heads/{branch}")
         if remote_ref.ok and remote_ref.stdout.split()[:1] == [head]:
-            return Outcome("ok", {"pushed_sha": head, "remote_branch": branch})  # ya publicado
+            return Outcome("ok", {"pushed_sha": head, "remote_branch": branch},
+                           artifacts=await self._branch(ctx, cwd, remote, branch))  # ya publicado
         pushed = await _git(ctx, cwd, "push", remote, f"HEAD:refs/heads/{branch}")
         if pushed.timed_out:
             return Outcome("timeout", error="git push superó el tiempo máximo")
@@ -81,7 +88,13 @@ class GitPushExec(NodeExecutor):
             lowered = pushed.combined.lower()
             kind = "rejected" if any(hint in lowered for hint in _REJECTED_HINTS) else "failed"
             return Outcome(kind, error=f"git push falló: {pushed.combined[-500:]}")
-        return Outcome("ok", {"pushed_sha": head, "remote_branch": branch})
+        return Outcome("ok", {"pushed_sha": head, "remote_branch": branch},
+                       artifacts=await self._branch(ctx, cwd, remote, branch))
+
+    @staticmethod
+    async def _branch(ctx: ExecContext, cwd: str, remote: str, branch: str) -> list[Artifact]:
+        url = (await _git(ctx, cwd, "remote", "get-url", remote)).stdout.strip()
+        return [Artifact("branch", f"Rama {branch}", branch_url(url, branch), branch)]
 
 
 class GitCreatePrExec(NodeExecutor):
@@ -108,7 +121,8 @@ class GitCreatePrExec(NodeExecutor):
              "\"\\(.number) \\(.url)\""], cwd=cwd, timeout_s=60, kind="gh")
         if existing.ok and existing.stdout.strip():
             number, url = existing.stdout.strip().split(" ", 1)
-            return Outcome("ok", {"pr_number": int(number), "pr_url": url})  # ya existe
+            return Outcome("ok", {"pr_number": int(number), "pr_url": url},
+                           artifacts=[Artifact("pr", f"PR #{number}: {cfg['title']}", url, number)])  # ya existe
         body_file = ctx.attempt_dir / "pr-body.md"
         body_file.write_text(self._body(ctx), encoding="utf-8")
         argv = ["gh", "pr", "create", "--base", cfg["base_branch"], "--head", cfg["head_branch"],
@@ -125,4 +139,6 @@ class GitCreatePrExec(NodeExecutor):
         match = re.search(r"https?://\S+/pull/(\d+)", created.stdout)
         if not match:
             return Outcome("failed", error=f"no se pudo leer la URL del PR: {created.stdout[-300:]}")
-        return Outcome("ok", {"pr_number": int(match.group(1)), "pr_url": match.group(0)})
+        return Outcome("ok", {"pr_number": int(match.group(1)), "pr_url": match.group(0)},
+                       artifacts=[Artifact("pr", f"PR #{match.group(1)}: {cfg['title']}", match.group(0),
+                                           match.group(1))])

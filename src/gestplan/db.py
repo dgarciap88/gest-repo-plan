@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Cambios posteriores al esquema inicial (versión 1); se aplican en orden a las bases existentes.
 MIGRATIONS: dict[int, tuple[str, ...]] = {
@@ -18,6 +18,24 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE runs ADD COLUMN title TEXT",
         "ALTER TABLE approvals ADD COLUMN nonce TEXT",
         "ALTER TABLE approvals ADD COLUMN overrides TEXT",
+    ),
+    3: (
+        """CREATE TABLE artifacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            attempt INTEGER NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL DEFAULT '',
+            ref TEXT NOT NULL DEFAULT '',
+            plan_name TEXT NOT NULL,
+            run_title TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (run_id, node_id, kind, ref)
+        )""",
+        "CREATE INDEX idx_artifacts_run ON artifacts (run_id)",
+        "CREATE INDEX idx_artifacts_created ON artifacts (created_at)",
     ),
 }
 
@@ -256,6 +274,33 @@ class Store:
             self.conn.execute("ROLLBACK")
             raise
         self.conn.execute("COMMIT")
+
+    # --- artefactos: lo creado fuera (no se borran con el run: es el rastro de lo que hay que limpiar) -------
+    def add_artifact(self, run_id: str, node_id: str, attempt: int, kind: str, title: str, url: str, ref: str,
+                     plan_name: str, run_title: str | None, created_at: str | None = None) -> bool:
+        """Registra un artefacto; repetir el mismo (run, nodo, tipo, referencia) no lo duplica."""
+        cursor = self.conn.execute(
+            "INSERT OR IGNORE INTO artifacts (run_id, node_id, attempt, kind, title, url, ref, plan_name, run_title, "
+            "created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (run_id, node_id, attempt, kind, title, url, ref, plan_name, run_title, created_at or self.clock()))
+        return cursor.rowcount > 0
+
+    def artifacts_of(self, run_ids: list[str]) -> list[Row]:
+        if not run_ids:
+            return []
+        marks = ",".join("?" * len(run_ids))
+        return self._many("artifacts", f"SELECT * FROM artifacts WHERE run_id IN ({marks}) ORDER BY id", tuple(run_ids))
+
+    def list_artifacts(self, kind: str | None = None, q: str | None = None, limit: int = 200) -> list[Row]:
+        where, params = [], []
+        if kind:
+            where.append("kind=?")
+            params.append(kind)
+        if q:
+            where.append("(title LIKE ? OR ref LIKE ? OR run_title LIKE ? OR run_id LIKE ? OR plan_name LIKE ?)")
+            params += [f"%{q}%"] * 5
+        sql = "SELECT * FROM artifacts" + (" WHERE " + " AND ".join(where) if where else "")
+        return self._many("artifacts", sql + " ORDER BY created_at DESC, id DESC LIMIT ?", (*params, limit))
 
     def children_of(self, run_id: str) -> list[Row]:
         return self._many("runs", "SELECT * FROM runs WHERE parent_run_id=? ORDER BY parent_index, id", (run_id,))

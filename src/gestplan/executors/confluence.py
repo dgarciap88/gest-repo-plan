@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import quote
 
 from gestplan.atlassian import basic_auth, blocks_to_markdown, render_storage, storage_to_blocks
-from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
+from gestplan.executors.base import Artifact, ExecContext, NodeExecutor, Outcome
 
 
 class ConfluenceCreatePageExec(NodeExecutor):
@@ -48,7 +48,7 @@ class ConfluenceCreatePageExec(NodeExecutor):
             body = ((page.get("body") or {}).get("storage") or {}).get("value", "")
             outputs = {"page_id": page["id"], "title": title, "url": self._url(cfg.confluence_base_url, page)}
             if self._marker(ctx) in body:
-                return Outcome("already_done", outputs)
+                return Outcome("already_done", outputs, artifacts=[Artifact("page", title, outputs["url"], page["id"])])
             return Outcome("title_exists", outputs, error=f"ya existe una página '{title}' en el espacio {space}")
 
         payload: dict[str, Any] = {"type": "page", "title": title, "space": {"key": space},
@@ -59,7 +59,9 @@ class ConfluenceCreatePageExec(NodeExecutor):
         if not created.ok:
             return Outcome("failed", error=f"Confluence respondió {created.status}: {created.text[:300]}")
         page = created.json()
-        return Outcome("ok", {"page_id": page["id"], "title": title, "url": self._url(cfg.confluence_base_url, page)})
+        url = self._url(cfg.confluence_base_url, page)
+        return Outcome("ok", {"page_id": page["id"], "title": title, "url": url},
+                       artifacts=[Artifact("page", title, url, page["id"])])
 
     @staticmethod
     def _url(base: str, page: dict[str, Any]) -> str:
@@ -99,7 +101,8 @@ class ConfluenceUpdatePageExec(ConfluenceCreatePageExec):
         done = {"page_id": str(page["id"]), "title": page["title"], "version": version,
                 "url": self._url(cfg.confluence_base_url, page)}
         if self._marker(ctx) in ((page.get("body") or {}).get("storage") or {}).get("value", ""):
-            return Outcome("already_done", done)
+            return Outcome("already_done", done,
+                           artifacts=[Artifact("page", f"{done['title']} (actualizada)", done["url"], done["page_id"])])
 
         payload = {"id": page["id"], "type": "page", "title": title,
                    "version": {"number": version + 1, "message": f"gestplan {ctx.run_id}"},
@@ -108,8 +111,10 @@ class ConfluenceUpdatePageExec(ConfluenceCreatePageExec):
         if not updated.ok:
             return Outcome("failed", error=f"Confluence respondió {updated.status}: {updated.text[:300]}")
         result = updated.json()
-        return Outcome("ok", {"page_id": str(result["id"]), "title": title, "version": version + 1,
-                              "url": self._url(cfg.confluence_base_url, result)})
+        shown = self._url(cfg.confluence_base_url, result)
+        return Outcome("ok", {"page_id": str(result["id"]), "title": title, "version": version + 1, "url": shown},
+                       artifacts=[Artifact("page", f"{title} (actualizada, v{version + 1})", shown,
+                                           str(result["id"]))])
 
 
 class ConfluenceGetPageExec(NodeExecutor):

@@ -271,6 +271,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 
+export interface ArtifactItem {
+  id: number
+  kind: string
+  title: string
+  url: string
+  ref: string
+  node_id: string
+  run_id: string
+  plan_name: string
+  run_title: string | null
+  run_exists: boolean
+  created_at: string
+  from_child: boolean
+}
+
 export interface ConfigParam {
   name: string
   group: string
@@ -293,6 +308,11 @@ export interface ConfigView {
 }
 
 export const api = {
+  runArtifacts: (id: string) => request<ArtifactItem[]>(`/runs/${id}/artifacts`),
+  artifacts: (params: { kind?: string; q?: string } = {}) => {
+    const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][])
+    return request<ArtifactItem[]>(`/artifacts?${query}`)
+  },
   config: () => request<ConfigView>('/config'),
   saveConfig: (values: Record<string, string | null>) =>
     request<{ changed: string[]; restart_required: string[] }>('/config', {

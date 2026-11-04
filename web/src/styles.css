@@ -652,3 +652,7 @@ th.sortable:hover {
 .notice { padding: 8px 12px; border-radius: 6px; margin: 10px 0; border: 1px solid currentColor; }
 .notice.good { color: var(--good, #2e8b57); }
 .notice.warn { color: var(--warn, #b8860b); }
+
+.chip.kind-pr, .chip.kind-merge { color: var(--accent, #6aa9ff); }
+.chip.kind-issue, .chip.kind-subtask, .chip.kind-comment { color: var(--good, #2e8b57); }
+.chip.kind-page { color: var(--warn, #b8860b); }

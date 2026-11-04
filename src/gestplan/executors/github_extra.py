@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
+from gestplan.executors.base import Artifact, ExecContext, NodeExecutor, Outcome
 from gestplan.executors.github import _gh_json
 
 _RUN_URL = re.compile(r"/actions/runs/(\d+)")
@@ -88,7 +88,7 @@ class GithubMergePrExec(NodeExecutor):
                 "sha": (data.get("mergeCommit") or {}).get("oid", "")}
         state = str(data.get("state", "")).upper()
         if state == "MERGED":
-            return Outcome("already_done", base)
+            return Outcome("already_done", base, artifacts=self._merged(base))
         if state == "CLOSED":
             return Outcome("closed", error="el PR está cerrado sin fusionar")
         if str(data.get("mergeable", "")).upper() == "CONFLICTING":
@@ -102,4 +102,9 @@ class GithubMergePrExec(NodeExecutor):
             return Outcome("not_mergeable" if blocked else "failed",
                            error=f"gh pr merge falló: {merged.combined[-400:]}")
         after = await _gh_json(ctx, "pr", "view", pr, "--json", "mergeCommit")
-        return Outcome("ok", {**base, "sha": ((after or {}).get("mergeCommit") or {}).get("oid", "")})
+        sha = ((after or {}).get("mergeCommit") or {}).get("oid", "")
+        return Outcome("ok", {**base, "sha": sha}, artifacts=self._merged({**base, "sha": sha}))
+
+    @staticmethod
+    def _merged(data: dict[str, Any]) -> list[Artifact]:
+        return [Artifact("merge", f"PR #{data['number']} fusionado", data["url"], str(data["sha"] or data["number"]))]

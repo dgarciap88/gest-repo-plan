@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from gestplan.atlassian import adf_to_text, basic_auth, markdown_to_adf
 from gestplan.engine.http import HttpResult
-from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
+from gestplan.executors.base import Artifact, ExecContext, NodeExecutor, Outcome
 
 _KEY = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
 
@@ -184,10 +184,17 @@ class JiraCommentExec(JiraBase):
         existing = await self.json(ctx, "GET", f"issue/{quote(key)}/comment", query="?maxResults=100&orderBy=-created")
         for comment in existing.get("comments", []):
             if marker in adf_to_text(comment.get("body")):
-                return Outcome("already_done", {"comment_id": comment.get("id", "")})
+                return Outcome("already_done", {"comment_id": comment.get("id", "")},
+                               artifacts=[self._artifact(ctx, key, comment.get("id", ""))])
         created = await self.json(ctx, "POST", f"issue/{quote(key)}/comment",
                                   json_body={"body": markdown_to_adf(str(ctx.config["body"]), marker)})
-        return Outcome("ok", {"comment_id": created.get("id", "")})
+        return Outcome("ok", {"comment_id": created.get("id", "")},
+                       artifacts=[self._artifact(ctx, key, created.get("id", ""))])
+
+    @staticmethod
+    def _artifact(ctx: ExecContext, key: str, comment_id: str) -> Artifact:
+        url = f"{ctx.settings.jira_base_url}/browse/{key}?focusedCommentId={comment_id}"
+        return Artifact("comment", f"Comentario en {key}", url, str(comment_id))
 
 
 class JiraTransitionExec(JiraBase):
@@ -245,7 +252,10 @@ class JiraCreateSubtaskExec(JiraBase):
                 fields["description"] = markdown_to_adf(spec["description"])
             keys.append((await self.json(ctx, "POST", "issue", json_body={"fields": fields}))["key"])
             created += 1
-        return Outcome("ok", {"keys": keys, "created": created})
+        base = ctx.settings.jira_base_url
+        summaries = [spec["summary"] for spec in ctx.config["subtasks"]]
+        return Outcome("ok", {"keys": keys, "created": created}, artifacts=[
+            Artifact("subtask", f"{k}: {summaries[i]}", f"{base}/browse/{k}", k) for i, k in enumerate(keys)])
 
 
 class JiraCreateIssueExec(JiraBase):
@@ -285,7 +295,9 @@ class JiraCreateIssueExec(JiraBase):
         if found.get("issues"):
             existing = found["issues"][0]
             return Outcome("already_done", {"key": existing["key"], "id": existing.get("id", ""),
-                                            "url": f"{base}/browse/{existing['key']}"})
+                                            "url": f"{base}/browse/{existing['key']}"},
+                           artifacts=[Artifact("issue", f"{existing['key']}: {cfg['summary']}",
+                                               f"{base}/browse/{existing['key']}", existing["key"])])
         fields: dict[str, Any] = {"project": {"key": project}, "issuetype": {"id": chosen["id"]},
                                   "summary": cfg["summary"], "labels": [*(cfg.get("labels") or []), label]}
         if cfg.get("description"):
@@ -294,7 +306,9 @@ class JiraCreateIssueExec(JiraBase):
             fields["parent"] = {"key": cfg["parent_key"]}
         created = await self.json(ctx, "POST", "issue", json_body={"fields": fields})
         return Outcome("ok", {"key": created["key"], "id": str(created.get("id", "")),
-                              "url": f"{base}/browse/{created['key']}"})
+                              "url": f"{base}/browse/{created['key']}"},
+                       artifacts=[Artifact("issue", f"{created['key']}: {cfg['summary']}",
+                                           f"{base}/browse/{created['key']}", created["key"])])
 
 
 class JiraSearchExec(JiraBase):

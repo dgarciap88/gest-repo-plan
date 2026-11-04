@@ -33,6 +33,7 @@ export function Layout() {
             Aprobaciones{pending > 0 && <span className="count">{pending}</span>}
           </NavLink>
           <NavLink to="/plans">Planes</NavLink>
+          <NavLink to="/artifacts">Artefactos</NavLink>
           <NavLink to="/catalog">Catálogo</NavLink>
           <NavLink to="/config">Configuración</NavLink>
         </nav>

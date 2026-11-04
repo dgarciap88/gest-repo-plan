@@ -354,6 +354,15 @@ def _cmd_approvals(args: argparse.Namespace) -> int:
     return 2
 
 
+def _cmd_backfill_artifacts(args: argparse.Namespace) -> int:
+    settings, store, _e = _open(args)
+    from gestplan.artifacts import backfill_artifacts
+
+    added = backfill_artifacts(store, settings.jira_base_url)
+    print(f"{added} artefacto(s) reconstruido(s) a partir del historial de los runs.")
+    return 0
+
+
 def _cmd_cost(args: argparse.Namespace) -> int:
     _s, store, _e = _open(args)
     runs = [store.get_run(args.run_id)] if args.run_id else store.list_runs(limit=args.limit)
@@ -478,6 +487,9 @@ def build_parser() -> argparse.ArgumentParser:
     common(serve)
     serve.set_defaults(func=_cmd_serve)
 
+    backfill = sub.add_parser("backfill-artifacts", help="registra los artefactos de runs anteriores a su existencia")
+    common(backfill)
+    backfill.set_defaults(func=_cmd_backfill_artifacts)
     cost = sub.add_parser("cost", help="coste acumulado de los runs")
     cost.add_argument("run_id", nargs="?")
     cost.add_argument("--limit", type=int, default=20)

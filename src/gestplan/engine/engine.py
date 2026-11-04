@@ -8,6 +8,7 @@ Ver DESIGN.md secciones 4 y 10.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import secrets
 from collections import defaultdict
@@ -33,6 +34,8 @@ from gestplan.plans.models import Plan
 from gestplan.plans.templates import UnresolvedReference, resolve_template
 from gestplan.plans.validator import validate_plan
 from gestplan.settings import Settings
+
+log = logging.getLogger("gestplan.engine")
 
 TERMINAL_RUN = ("succeeded", "failed", "cancelled")
 ACTIVE_NODE = ("ready", "running", "waiting_approval", "waiting_external")
@@ -570,12 +573,23 @@ class Engine:
         if attempt:
             self.store.finish_attempt(attempt["id"], status, event=outcome.event, outputs=outcome.outputs or {},
                                       error=outcome.error, cost_usd=outcome.cost_usd)
+        self._record_artifacts(run, node_id, node_type, attempt, outcome)
         targets = state.edges_from.get((node_id, outcome.event), [])
         unhandled = int(failure and not targets)
         self.store.set_node(run_id, node_id, status, event=outcome.event, reason=outcome.error,
                             unhandled=unhandled)
         for target in targets:
             self._trigger(run_id, state, target)
+
+    def _record_artifacts(self, run: dict, node_id: str, node_type: Any, attempt: dict | None,
+                          outcome: Outcome) -> None:
+        declared = {spec.kind for spec in getattr(node_type, "artifacts", ())}
+        for item in outcome.artifacts:
+            if item.kind not in declared:
+                log.warning("el nodo %s devolvió un artefacto '%s' que su tipo no declara", node_id, item.kind)
+                continue
+            self.store.add_artifact(run["id"], node_id, attempt["attempt"] if attempt else 0, item.kind, item.title,
+                                    item.url, item.ref, run["plan_name"], run.get("title"))
 
     @staticmethod
     def _is_failure(node_type: Any, type_name: str, event: str) -> bool:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gestplan.nodes.base import NodeType, event
+from gestplan.nodes.base import NodeType, artifact, event
 from gestplan.nodes.common import TBool, TStrList
 from gestplan.nodes.registry import register
 
@@ -61,6 +61,7 @@ class GitPush(NodeType):
         event("failed", "El push falló", failure=True),
         event("timeout", "Se superó el tiempo máximo", failure=True),
     )
+    artifacts = (artifact("branch", "Rama publicada en el remoto (enlace a GitHub si el remoto lo es)"),)
     example = {
         "workspace": "${nodes.ws.outputs.path}",
         "remote_branch": "${nodes.ws.outputs.remote_branch}",
@@ -93,6 +94,7 @@ class GitCreatePr(NodeType):
         event("ok", "PR creado o ya existente"),
         event("failed", "No se pudo crear el PR", failure=True),
     )
+    artifacts = (artifact("pr", "Pull request abierto (o el que ya existía para esa rama)"),)
     example = {
         "workspace": "${nodes.ws.outputs.path}",
         "base_branch": "${inputs.base}",

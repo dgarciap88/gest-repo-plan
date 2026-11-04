@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from gestplan.nodes.base import NodeType, event
+from gestplan.nodes.base import NodeType, artifact, event
 from gestplan.nodes.common import TBool, TInt
 from gestplan.nodes.github import _FAILED, _PrConfig
 from gestplan.nodes.registry import register
@@ -51,6 +51,7 @@ class GithubMergePr(NodeType):
         event("closed", "El PR está cerrado sin fusionar", failure=True),
         event("failed", "La fusión falló", failure=True),
     )
+    artifacts = (artifact("merge", "Pull request fusionado en su rama base"),)
     example = {"workspace": "${nodes.ws.outputs.path}", "pr": "${nodes.pr.outputs.pr_url}", "method": "squash"}
 
     class ConfigModel(_PrConfig):

@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from gestplan.nodes.base import NodeType, event
+from gestplan.nodes.base import NodeType, artifact, event
 from gestplan.nodes.common import TemplateStr
 from gestplan.nodes.registry import register
 
@@ -82,6 +82,7 @@ class ConfluenceCreatePage(NodeType):
         event("title_exists", "Existe otra página con ese título en el espacio", failure=True),
         event("failed", "La llamada a Confluence falló", failure=True),
     )
+    artifacts = (artifact("page", "Página de Confluence creada"),)
     example = {
         "space": "DOC",
         "title": "Informe ${inputs.jira_id}",
@@ -120,6 +121,7 @@ class ConfluenceUpdatePage(NodeType):
         event("not_found", "La página no existe o no hay permiso", failure=True),
         event("failed", "La llamada a Confluence falló", failure=True),
     )
+    artifacts = (artifact("page", "Página de Confluence actualizada (nueva versión)"),)
     example = {
         "page_id": "458753",
         "blocks": [{"type": "heading", "level": 1, "text": "Informe actualizado"},

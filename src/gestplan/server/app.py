@@ -303,6 +303,27 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
                  "started_at": a["started_at"], "finished_at": a["finished_at"], "cost_usd": a["cost_usd"]}
                 for _, node_id, a in attempts]
 
+    def artifact_view(store: Any, row: dict[str, Any], *, root: str | None = None) -> dict[str, Any]:
+        run = store.get_run(row["run_id"])
+        return {"id": row["id"], "kind": row["kind"], "title": row["title"], "url": row["url"], "ref": row["ref"],
+                "node_id": row["node_id"], "run_id": row["run_id"], "plan_name": row["plan_name"],
+                "run_title": run["title"] if run else row["run_title"], "run_exists": run is not None,
+                "created_at": row["created_at"], "from_child": bool(root and row["run_id"] != root)}
+
+    @app.get("/api/runs/{run_id}/artifacts")
+    async def run_artifacts(run_id: str) -> list[dict[str, Any]]:
+        """Lo que el run (y sus runs hijos) creó fuera de gestplan."""
+        store = eng().store
+        if store.get_run(run_id) is None:
+            raise HTTPException(404, "run no encontrado")
+        return [artifact_view(store, row, root=run_id) for row in store.artifacts_of(eng()._family(run_id))]
+
+    @app.get("/api/artifacts")
+    async def artifacts(kind: str | None = None, q: str | None = None,
+                        limit: int = Query(200, ge=1, le=1000)) -> list[dict[str, Any]]:
+        store = eng().store
+        return [artifact_view(store, row) for row in store.list_artifacts(kind, q, limit)]
+
     @app.post("/api/runs/{run_id}/cancel")
     async def cancel(run_id: str) -> dict[str, Any]:
         if eng().store.get_run(run_id) is None:
