@@ -156,3 +156,37 @@ class WaitPlanExec(NodeExecutor):
 
     async def poll(self, ctx: ExecContext) -> Outcome | None:
         return self._check(ctx)
+
+
+class _Fields(dict):
+    """Campos de un elemento para str.format_map: un campo inexistente es un error claro, no un hueco."""
+
+    def __missing__(self, key: str) -> str:
+        raise KeyError(key)
+
+
+class MapItemsExec(NodeExecutor):
+    type = "map_items"
+
+    async def run(self, ctx: ExecContext) -> Outcome:
+        items = ctx.config["items"]
+        if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
+            return Outcome("failed", error="'items' debe resolverse a una lista de objetos")
+        mapping, skip = ctx.config["mapping"], bool(ctx.config.get("skip_when_empty"))
+        result: list[dict[str, Any]] = []
+        skipped = 0
+        for index, item in enumerate(items):
+            built: dict[str, Any] = {}
+            try:
+                for name, value in mapping.items():
+                    built[name] = value.format_map(_Fields(item)) if isinstance(value, str) else value
+            except KeyError as exc:
+                return Outcome("failed", error=f"el elemento #{index} no tiene el campo {exc} "
+                               f"(campos: {', '.join(sorted(item)) or 'ninguno'})")
+            except (ValueError, IndexError, AttributeError) as exc:
+                return Outcome("failed", error=f"valor del mapping no válido en el elemento #{index}: {exc}")
+            if skip and any(v in ("", None) for v in built.values()):
+                skipped += 1
+                continue
+            result.append(built)
+        return Outcome("ok" if result else "empty", {"items": result, "count": len(result), "skipped": skipped})

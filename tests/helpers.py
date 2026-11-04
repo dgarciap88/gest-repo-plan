@@ -84,10 +84,10 @@ def flow_plan(**overrides: Any) -> dict:
     return plan
 
 
-def build(engine: Engine, data: dict, inputs: dict | None = None) -> str:
+def build(engine: Engine, data: dict, inputs: dict | None = None, title: str | None = None) -> str:
     plan, issues = parse_plan(data)
     assert plan is not None, issues
-    return engine.create_run(plan, inputs or {})
+    return engine.create_run(plan, inputs or {}, title=title)
 
 
 def drive(engine: Engine, run_id: str) -> str:

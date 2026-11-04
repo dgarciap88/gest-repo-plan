@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "name": "implement-jira-batch",
+  "description": "Busca tickets de Jira con una consulta JQL y lanza un implement-jira por cada uno (con límite de concurrencia). Cada run hijo tiene su propia aprobación manual antes de publicar",
+  "inputs": {
+    "jql": { "type": "string", "required": true, "description": "Consulta JQL que selecciona los tickets, p. ej. project = ABC AND status = 'To Do'" },
+    "repo_url": { "type": "string", "required": true, "description": "URL del repositorio" },
+    "source_branch": { "type": "string", "default": "main", "description": "Rama de la que parte cada ticket" },
+    "max_tickets": { "type": "integer", "default": 10, "description": "Máximo de tickets a procesar" },
+    "max_parallel": { "type": "integer", "default": 2, "description": "Tickets simultáneos como máximo" }
+  },
+  "settings": { "language": "es", "display_inputs": ["jql"] },
+  "nodes": {
+    "search": {
+      "type": "jira.search",
+      "config": { "jql": "${inputs.jql}", "max_results": "${inputs.max_tickets}" }
+    },
+    "items": {
+      "type": "map_items",
+      "config": {
+        "items": "${nodes.search.outputs.issues}",
+        "mapping": {
+          "jira_id": "{key}",
+          "repo_url": "${inputs.repo_url}",
+          "source_branch": "${inputs.source_branch}"
+        }
+      }
+    },
+    "launch": {
+      "type": "launch_plans",
+      "config": {
+        "plan": "implement-jira",
+        "items": "${nodes.items.outputs.items}",
+        "max_parallel": "${inputs.max_parallel}"
+      }
+    },
+    "wait": { "type": "wait_plan", "config": { "launched_by": "launch" } }
+  },
+  "edges": [
+    { "from": "search.ok", "to": "items" },
+    { "from": "items.ok", "to": "launch" },
+    { "from": "launch.ok", "to": "wait" }
+  ]
+}

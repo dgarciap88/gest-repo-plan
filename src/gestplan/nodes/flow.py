@@ -373,3 +373,40 @@ class WaitPlan(NodeType):
                 )
             ]
         return []
+
+
+@register
+class MapItems(NodeType):
+    type = "map_items"
+    family = "flow"
+    side_effect = "none"
+    default_timeout_s = 60
+    description = (
+        "Transforma una lista de elementos (p. ej. los tickets de jira.search) en la lista de inputs que espera "
+        "launch_plans. 'mapping' dice, para cada input del plan hijo, su valor: un texto con campos del elemento "
+        "entre llaves ({key}, {summary}...) o un valor fijo. Un campo que no existe es un error. Con "
+        "'skip_when_empty' se ignoran los elementos cuyo resultado deja algún input vacío."
+    )
+    events = (
+        event("ok", "Lista construida"),
+        event("empty", "No hay elementos que lanzar"),
+        event("failed", "Un elemento no tiene el campo pedido", failure=True),
+    )
+    example = {
+        "items": "${nodes.search.outputs.issues}",
+        "mapping": {"jira_id": "{key}", "repo_url": "${inputs.repo_url}", "source_branch": "main"},
+    }
+
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        items: list[dict[str, Any]] | str = Field(description="Lista de elementos (objetos) o una referencia ${...}")
+        mapping: dict[str, Any] = Field(
+            min_length=1, description="Input del plan hijo → valor; en los textos, {campo} toma el campo del elemento"
+        )
+        skip_when_empty: bool = Field(default=False, description="Descartar los elementos que dejen un input vacío")
+
+    class OutputsModel(BaseModel):
+        items: list[dict[str, Any]] = Field(description="Un diccionario de inputs por elemento, en el mismo orden")
+        count: int = Field(description="Número de elementos resultantes")
+        skipped: int = Field(description="Elementos descartados por skip_when_empty")

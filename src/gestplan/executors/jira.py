@@ -295,3 +295,35 @@ class JiraCreateIssueExec(JiraBase):
         created = await self.json(ctx, "POST", "issue", json_body={"fields": fields})
         return Outcome("ok", {"key": created["key"], "id": str(created.get("id", "")),
                               "url": f"{base}/browse/{created['key']}"})
+
+
+class JiraSearchExec(JiraBase):
+    type = "jira.search"
+    _FIELDS = "summary,status,issuetype,priority,assignee,parent,labels"
+
+    async def run(self, ctx: ExecContext) -> Outcome:
+        limit = max(1, min(int(ctx.config.get("max_results", 50)), 100))
+        jql = str(ctx.config["jql"]).strip()
+        try:
+            data = await self.json(ctx, "GET", "search/jql",
+                                   query=f"?jql={quote(jql)}&fields={self._FIELDS}&maxResults={limit}")
+        except JiraError as exc:
+            return Outcome("failed", error=str(exc))
+        base = ctx.settings.jira_base_url
+        issues = []
+        for raw in data.get("issues", [])[:limit]:
+            fields = raw.get("fields", {})
+            issues.append({
+                "key": raw.get("key", ""), "url": f"{base}/browse/{raw.get('key', '')}",
+                "summary": fields.get("summary", ""), "status": (fields.get("status") or {}).get("name", ""),
+                "issue_type": (fields.get("issuetype") or {}).get("name", ""),
+                "priority": (fields.get("priority") or {}).get("name", ""),
+                "assignee": _name(fields.get("assignee")), "parent_key": (fields.get("parent") or {}).get("key", ""),
+                "labels": fields.get("labels", []),
+            })
+        outputs = {
+            "count": len(issues), "truncated": not data.get("isLast", True) or len(data.get("issues", [])) > limit,
+            "keys": [i["key"] for i in issues], "issues": issues,
+            "text": "\n".join(f"{i['key']} [{i['status']}] {i['summary']}" for i in issues),
+        }
+        return Outcome("ok" if issues else "empty", outputs)

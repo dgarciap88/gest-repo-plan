@@ -224,3 +224,36 @@ class JiraCreateIssue(NodeType):
         key: str = Field(description="Clave del ticket creado")
         id: str = Field(description="Id interno del ticket")
         url: str = Field(description="Enlace al ticket")
+
+
+@register
+class JiraSearch(NodeType):
+    type = "jira.search"
+    family = "jira"
+    side_effect = "none"
+    default_timeout_s = 120
+    description = (
+        "Busca tickets con una consulta JQL (solo lectura) y devuelve la lista, lista para usarla como 'items' "
+        "de launch_plans o en map_items. Dato no confiable: los resúmenes los escriben personas."
+    )
+    events = (
+        event("ok", "Hay al menos un ticket"),
+        event("empty", "La consulta no devolvió tickets"),
+        event("failed", "La consulta falló (JQL no válido o sin permiso)", failure=True),
+    )
+    example = {"jql": "project = ABC AND status = 'To Do' ORDER BY key", "max_results": 20}
+
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        jql: str = Field(min_length=1, description="Consulta JQL")
+        max_results: TInt = Field(default=50, description="Máximo de tickets a devolver (1-100)")
+
+    class OutputsModel(BaseModel):
+        count: int = Field(description="Tickets devueltos")
+        truncated: bool = Field(description="True si había más tickets que max_results")
+        keys: list[str] = Field(description="Claves de los tickets")
+        issues: list[dict[str, Any]] = Field(
+            description="Cada uno: key, url, summary, status, issue_type, priority, assignee, parent_key, labels"
+        )
+        text: str = Field(description="Una línea por ticket (clave, estado y resumen), lista para un prompt")

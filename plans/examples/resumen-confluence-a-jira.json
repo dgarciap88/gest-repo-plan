@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "name": "resumen-confluence-a-jira",
+  "description": "Lee una página de Confluence y publica su título y su contenido en Markdown como comentario de un ticket de Jira, tras aprobación manual.",
+  "inputs": {
+    "page_id": {
+      "type": "string",
+      "required": true,
+      "description": "Id de la página de Confluence",
+      "pattern": "^\\d+$"
+    },
+    "jira_id": {
+      "type": "string",
+      "required": true,
+      "description": "Clave del ticket de Jira, p. ej. ABC-123",
+      "pattern": "^[A-Z][A-Z0-9_]+-\\d+$"
+    }
+  },
+  "settings": {
+    "language": "es"
+  },
+  "nodes": {
+    "leer_pagina": {
+      "type": "confluence.get_page",
+      "description": "Lee la página de Confluence y obtiene su título y su contenido en Markdown",
+      "config": {
+        "page_id": "${inputs.page_id}"
+      }
+    },
+    "aprobacion": {
+      "type": "manual_approval",
+      "description": "Una persona revisa el contenido antes de publicarlo en el ticket",
+      "config": {
+        "approves": [
+          "comentar_jira"
+        ],
+        "message": "Revisa el contenido de la página antes de publicarlo en el ticket ${inputs.jira_id}"
+      }
+    },
+    "comentar_jira": {
+      "type": "jira.comment",
+      "description": "Publica en el ticket el título de la página y su contenido",
+      "config": {
+        "key": "${inputs.jira_id}",
+        "body": "# ${nodes.leer_pagina.outputs.title}\n\n${nodes.leer_pagina.outputs.text}"
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "leer_pagina.ok",
+      "to": "aprobacion"
+    },
+    {
+      "from": "aprobacion.approved",
+      "to": "comentar_jira"
+    }
+  ]
+}
