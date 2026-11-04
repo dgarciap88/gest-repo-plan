@@ -254,7 +254,7 @@ def _failure(run: AgentRun) -> Outcome:
 
 
 async def _changed_files(ctx: ExecContext) -> list[str]:
-    status = await ctx.process(["git", "status", "--porcelain"], cwd=ctx.config["workspace"], kind="git",
+    status = await ctx.process(["git", "status", "--porcelain", "-uall"], cwd=ctx.config["workspace"], kind="git",
                                timeout_s=60)
     files = []
     for line in status.stdout.splitlines():

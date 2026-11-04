@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "name": "smoke-atlassian",
+  "description": "Prueba manual contra Jira y Confluence reales: lee un ticket, sus comentarios y adjuntos y, tras la aprobación, lo asigna, comenta, cambia de estado, crea subtareas y publica una página de Confluence",
+  "inputs": {
+    "jira_id": { "type": "string", "required": true, "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$", "description": "Ticket de prueba" },
+    "space": { "type": "string", "default": "MFS", "description": "Clave del espacio de Confluence donde crear la página" },
+    "to_status": { "type": "string", "default": "En curso", "description": "Estado al que pasar el ticket" },
+    "workdir": { "type": "string", "default": "data/smoke", "description": "Carpeta local donde descargar los adjuntos" }
+  },
+  "settings": { "language": "es", "display_inputs": ["jira_id", "space"] },
+  "nodes": {
+    "issue": { "type": "jira.get_issue", "config": { "key": "${inputs.jira_id}" } },
+    "comments": { "type": "jira.get_comments", "config": { "key": "${inputs.jira_id}" } },
+    "attachments": {
+      "type": "jira.get_attachments",
+      "config": { "key": "${inputs.jira_id}", "workspace": "${inputs.workdir}", "directory": "attachments" }
+    },
+    "approval": {
+      "type": "manual_approval",
+      "config": {
+        "approves": ["assign", "comment", "transition", "subtasks", "page"],
+        "message": "Se modificará el ticket (asignación, comentario, estado, subtareas) y se creará una página de Confluence"
+      }
+    },
+    "assign": { "type": "jira.assign", "config": { "key": "${inputs.jira_id}", "assignee": "me" } },
+    "comment": {
+      "type": "jira.comment",
+      "config": {
+        "key": "${inputs.jira_id}",
+        "body": "Prueba de gestplan (run ${run.id}).\n\n**Resumen leído:** ${nodes.issue.outputs.summary}\n\n- Comentarios leídos: ${nodes.comments.outputs.count}\n- Adjuntos: ${nodes.attachments.outputs.listing}"
+      }
+    },
+    "transition": { "type": "jira.transition", "config": { "key": "${inputs.jira_id}", "to": "${inputs.to_status}" } },
+    "subtasks": {
+      "type": "jira.create_subtask",
+      "config": {
+        "key": "${inputs.jira_id}",
+        "subtasks": [
+          { "summary": "Subtarea de prueba 1 (gestplan)", "description": "Creada por **gestplan** en la prueba de ${run.id}." },
+          { "summary": "Subtarea de prueba 2 (gestplan)" }
+        ]
+      }
+    },
+    "page": {
+      "type": "confluence.create_page",
+      "config": {
+        "space": "${inputs.space}",
+        "title": "Prueba gestplan ${run.id}",
+        "blocks": [
+          { "type": "heading", "level": 1, "text": "Informe de ${inputs.jira_id}" },
+          { "type": "paragraph", "text": "${nodes.issue.outputs.summary}" },
+          { "type": "table", "columns": ["Campo", "Valor"], "rows": [["Estado", "${nodes.issue.outputs.status}"], ["Tipo", "${nodes.issue.outputs.issue_type}"]] },
+          { "type": "list", "items": ["Lectura del ticket", "Comentarios", "Adjuntos"] },
+          { "type": "code", "language": "python", "text": "print('hola desde gestplan')" }
+        ]
+      }
+    }
+  },
+  "edges": [
+    { "from": "issue.ok", "to": "approval" },
+    { "from": "comments.ok", "to": "approval" },
+    { "from": "attachments.ok", "to": "approval" },
+    { "from": "approval.approved", "to": "assign" },
+    { "from": "assign.ok", "to": "comment" },
+    { "from": "assign.already_done", "to": "comment" },
+    { "from": "comment.ok", "to": "transition" },
+    { "from": "comment.already_done", "to": "transition" },
+    { "from": "transition.ok", "to": "subtasks" },
+    { "from": "transition.already_done", "to": "subtasks" },
+    { "from": "subtasks.ok", "to": "page" }
+  ]
+}
