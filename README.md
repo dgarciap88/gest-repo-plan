@@ -1,6 +1,6 @@
 # gest-repo-plan
 
-Motor local de **planes de procesos como grafos** (JSON) cuyos nodos ejecutan tareas sobre repositorios y agentes de IA. Diseño completo en [DESIGN.md](DESIGN.md); ideas aplazadas en [NICE_TO_HAVE.md](NICE_TO_HAVE.md).
+Motor local de **planes de procesos como grafos** (JSON) cuyos nodos ejecutan tareas sobre repositorios y agentes de IA. Diseño completo en [DESIGN.md](DESIGN.md); cómo añadir tipos de nodo en [NODES.md](NODES.md); ideas aplazadas en [NICE_TO_HAVE.md](NICE_TO_HAVE.md).
 
 ## Estado
 Hito Bootstrap (DESIGN.md 15.1) alcanzado con **Claude** como proveedor de IA: el motor ejecuta planes con workspace, agente, validador cruzado, tests, aprobación manual, commit, push y PR, y puede **lanzar planes desde planes** (`implement-tasks`). Incluye un **servidor web** (`gestplan serve`) con API, tiempo real y una UI con React Flow. Incluye nodos de Jira, Confluence y GitHub (lectura), escaneo de secretos y un adaptador de Copilot sin verificar (ver DESIGN.md 15.2).
