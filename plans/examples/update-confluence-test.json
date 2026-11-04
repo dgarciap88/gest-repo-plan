@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "name": "update-confluence-test",
+  "description": "Lee una página de Confluence, le añade una sección y la reescribe tras aprobación (get_page → update_page; conserva macros)",
+  "inputs": {
+    "page_id": { "type": "string", "required": true, "description": "Id de la página" },
+    "note": { "type": "string", "default": "Actualizada por gestplan", "description": "Texto de la sección que se añade" }
+  },
+  "settings": { "language": "es", "display_inputs": ["page_id"] },
+  "nodes": {
+    "leer": { "type": "confluence.get_page", "config": { "page_id": "${inputs.page_id}", "strict": true } },
+    "anadir": {
+      "type": "python_script",
+      "config": {
+        "script": "append_blocks",
+        "inputs": {
+          "blocks": "${nodes.leer.outputs.blocks}",
+          "extra": [
+            { "type": "heading", "level": 2, "text": "Última actualización" },
+            { "type": "paragraph", "text": "${inputs.note} (run ${run.id})" }
+          ]
+        }
+      }
+    },
+    "approval": { "type": "manual_approval", "config": { "approves": ["escribir"], "message": "Se reescribirá la página con la sección nueva" } },
+    "escribir": {
+      "type": "confluence.update_page",
+      "config": { "page_id": "${inputs.page_id}", "blocks": "${nodes.anadir.outputs.blocks}" }
+    }
+  },
+  "edges": [
+    { "from": "leer.ok", "to": "anadir" },
+    { "from": "anadir.ok", "to": "approval" },
+    { "from": "approval.approved", "to": "escribir" }
+  ]
+}

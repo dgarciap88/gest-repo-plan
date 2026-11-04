@@ -144,3 +144,13 @@ def test_actualizar_pagina_inexistente(tmp_path):
     drive(engine, run_id)
     assert engine.store.attempts(run_id, "pagina")[-1]["event"] == "not_found"
     assert json.dumps(engine.store.attempts(run_id, "pagina")[-1]["error"]).count("404") == 1
+
+
+def test_la_vista_previa_de_actualizar_pagina_se_muestra_al_aprobar(tmp_path):
+    """La aprobación enseña el contenido que va a reemplazar la página (antes fallaba con KeyError: 'space')."""
+    engine = settings_engine(tmp_path, FakeHttp(FakeWiki()))
+    run_id = build(engine, page_plan(title="Informe final"))
+    drive(engine, run_id)
+    preview = engine.store.list_approvals("pending")[0]["previews"]["pagina"]
+    assert preview["kind"] == "markdown" and "página 77" in preview["title"] and "Informe final" in preview["title"]
+    assert "# Nuevo" in preview["text"] and "Contenido <b>" in preview["text"]

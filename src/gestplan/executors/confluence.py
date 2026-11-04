@@ -75,8 +75,12 @@ class ConfluenceUpdatePageExec(ConfluenceCreatePageExec):
     type = "confluence.update_page"
 
     async def preview(self, ctx: ExecContext) -> dict[str, Any] | None:
-        shown = await super().preview(ctx) or {"kind": "none", "message": "sin vista previa"}
-        return {**shown, "title": f"Reemplaza el contenido de la página {ctx.config['page_id']}"}
+        blocks = ctx.config["blocks"]
+        title = f"Reemplaza el contenido de la página {ctx.config['page_id']}"
+        if ctx.config.get("title"):
+            title += f" (nuevo título: «{ctx.config['title']}»)"
+        text = blocks_to_markdown(blocks if isinstance(blocks, list) else [])
+        return {"kind": "markdown", "title": title, "text": text}
 
     async def run(self, ctx: ExecContext) -> Outcome:
         cfg = ctx.settings
