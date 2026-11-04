@@ -58,6 +58,10 @@ class GithubWaitChecks(NodeType):
     class ConfigModel(_PrConfig):
         poll_interval_s: TInt = Field(default=30, description="Segundos entre consultas")
         max_wait_s: TInt = Field(default=3600, description="Espera máxima total")
+        no_checks_wait_s: TInt = Field(
+            default=90,
+            description="Segundos que se espera a que aparezca algún check antes de dar por hecho que no hay CI",
+        )
 
     class OutputsModel(BaseModel):
         state: str

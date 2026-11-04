@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "name": "merge-pr-test",
+  "description": "Fusiona un PR existente tras aprobación (prueba de github.merge_pr)",
+  "inputs": {
+    "repo_url": {
+      "type": "string",
+      "required": true,
+      "description": "URL del repositorio"
+    },
+    "pr": {
+      "type": "string",
+      "required": true,
+      "description": "Número o URL del PR"
+    },
+    "delete_branch": {
+      "type": "boolean",
+      "default": false,
+      "description": "Borrar la rama remota tras fusionar"
+    }
+  },
+  "settings": {
+    "language": "es",
+    "display_inputs": [
+      "pr"
+    ]
+  },
+  "nodes": {
+    "ws": {
+      "type": "prepare_workspace",
+      "config": {
+        "repo_url": "${inputs.repo_url}",
+        "base_branch": "main",
+        "new_branch": "merge-test-${run.id}"
+      }
+    },
+    "approval": {
+      "type": "manual_approval",
+      "config": {
+        "approves": [
+          "merge"
+        ],
+        "message": "Se fusionará el PR en su rama base"
+      }
+    },
+    "merge": {
+      "type": "github.merge_pr",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "pr": "${inputs.pr}",
+        "method": "squash",
+        "delete_branch": "${inputs.delete_branch}"
+      }
+    },
+    "cleanup": {
+      "type": "cleanup_workspace",
+      "join": "any",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}"
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "ws.ok",
+      "to": "approval"
+    },
+    {
+      "from": "approval.approved",
+      "to": "merge"
+    },
+    {
+      "from": "merge.ok",
+      "to": "cleanup"
+    },
+    {
+      "from": "merge.already_done",
+      "to": "cleanup"
+    }
+  ]
+}

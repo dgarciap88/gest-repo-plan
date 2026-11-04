@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "name": "create-issue-test",
+  "description": "Crea un ticket de Jira (tras aprobación) para probar jira.create_issue y su idempotencia",
+  "inputs": {
+    "project": { "type": "string", "default": "KAN", "description": "Clave del proyecto" },
+    "summary": { "type": "string", "required": true, "description": "Título del ticket" },
+    "description": { "type": "string", "default": "", "description": "Descripción (Markdown básico)" },
+    "issue_type": { "type": "string", "default": "Task", "description": "Tipo de ticket (Task/Tarea se traducen solos)" },
+    "label": { "type": "string", "default": "gestplan-test", "description": "Etiqueta que se añade al ticket" }
+  },
+  "settings": { "language": "es", "display_inputs": ["summary"] },
+  "nodes": {
+    "approval": {
+      "type": "manual_approval",
+      "config": { "approves": ["issue"], "message": "Se creará un ticket en Jira" }
+    },
+    "issue": {
+      "type": "jira.create_issue",
+      "config": {
+        "project": "${inputs.project}",
+        "summary": "${inputs.summary}",
+        "description": "${inputs.description}",
+        "issue_type": "${inputs.issue_type}",
+        "labels": ["${inputs.label}"]
+      }
+    }
+  },
+  "edges": [{ "from": "approval.approved", "to": "issue" }]
+}

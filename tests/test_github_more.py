@@ -115,8 +115,34 @@ def test_un_repo_sin_ci_no_es_un_error_al_esperar_checks(tmp_path):
 
     engine = make_engine(tmp_path, runner=FakeRunner(gh))
     plan = {"name": "w", "nodes": {"n": {"type": "github.wait_checks",
-                                          "config": {"workspace": ".", "pr": "7", "poll_interval_s": 0}}}, "edges": []}
+                                          "config": {"workspace": ".", "pr": "7", "poll_interval_s": 0,
+                                                     "no_checks_wait_s": 0}}}, "edges": []}
     run_id = build(engine, plan)
     drive(engine, run_id)
     attempt = engine.store.attempts(run_id, "n")[-1]
     assert attempt["event"] == "success" and attempt["outputs"]["summary"] == ""
+
+
+def test_checks_que_aun_no_se_han_registrado_no_cuentan_como_sin_ci(tmp_path):
+    """Justo tras abrir el PR GitHub tarda unos segundos en registrar el CI: no se debe dar success antes."""
+    polls = {"n": 0}
+
+    def gh(argv, cwd, stdin):
+        if argv[1:3] != ["pr", "checks"]:
+            return None
+        polls["n"] += 1
+        if polls["n"] <= 2:
+            return ProcResult(1, "", "no checks reported on the 'feature/x' branch")
+        bucket = "pending" if polls["n"] == 3 else "pass"
+        return ProcResult(0, json.dumps([{"name": "tests", "bucket": bucket, "state": bucket.upper(), "link": "l"}]), "")
+
+    engine = make_engine(tmp_path, runner=FakeRunner(gh))
+    plan = {"name": "w", "nodes": {"n": {"type": "github.wait_checks",
+                                          "config": {"workspace": ".", "pr": "7", "poll_interval_s": 0}}}, "edges": []}
+    run_id = build(engine, plan)
+    for _ in range(8):  # el servidor sondea de forma continua; aquí cada drive da un sondeo más
+        drive(engine, run_id)
+        if engine.store.attempts(run_id, "n")[-1]["event"]:
+            break
+    attempt = engine.store.attempts(run_id, "n")[-1]
+    assert polls["n"] == 4 and attempt["event"] == "success" and "tests" in attempt["outputs"]["summary"]

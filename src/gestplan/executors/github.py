@@ -61,6 +61,8 @@ class GithubWaitChecksExec(NodeExecutor):
         except (RuntimeError, ValueError) as exc:
             return Outcome("failed", error=str(exc))
         checks = checks or []
+        if not checks and not expired and now - started < int(ctx.config.get("no_checks_wait_s", 90)):
+            return None  # justo tras abrir el PR GitHub aún no ha registrado el CI: «sin checks» no significa «sin CI»
         failed = [{"name": c.get("name", ""), "link": c.get("link", ""), "state": c.get("state", "")}
                   for c in checks if c.get("bucket") in ("fail", "cancel")]
         pending = [c for c in checks if c.get("bucket") == "pending"]
