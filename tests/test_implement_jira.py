@@ -98,7 +98,7 @@ def test_el_ticket_llega_al_agente_como_datos_y_los_adjuntos_quedan_fuera_del_re
     listing = next(v for k, v in data.items() if k.startswith("Adjuntos"))
     assert "captura.png" in listing and "enorme.zip (omitido" in listing
     assert seen["dev"]["extra_dirs"] == [str(attachments.resolve())]
-    assert seen["dev"]["model_tier"] == ["cheap", "standard"] and seen["val"]["provider"] == "copilot"
+    assert seen["dev"]["model_tier"] == "cheap" and seen["val"]["provider"] == "copilot"
 
 
 def test_rama_distinta_abre_pr_y_lo_comenta_en_jira(flow):

@@ -39,7 +39,7 @@
       "max_attempts": 4,
       "config": {
         "provider": "claude",
-        "model_tier": ["cheap", "standard"],
+        "model_tier": "cheap",
         "workspace": "${nodes.ws.outputs.path}",
         "extra_dirs": ["${nodes.attachments.outputs.directory}"],
         "prompt_template": "templates/prompts/implement-jira.md",

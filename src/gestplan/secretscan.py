@@ -146,3 +146,50 @@ def masked_context(workspace: Path, file: str, line: int, radius: int = 2) -> st
     first, last = max(1, line - radius), min(len(lines), line + radius)
     return "\n".join(f"{number}{'>' if number == line else ' '} {mask_line(lines[number - 1])}"
                      for number in range(first, last + 1))
+
+
+_MARKER_WORDS = re.compile(r"(?i)fake|example|dummy|sample|placeholder|changeme|test|demo|todo|your|x{4,}")
+_RUN = re.compile(r"(.)\1{5,}")
+PLACEHOLDER_THRESHOLD = 70
+
+
+def _suspect_values(line: str) -> list[str]:
+    values: list[str] = []
+    for _kind, pattern in _PATTERNS:
+        for match in pattern.finditer(line):
+            values.append(match.group(1) if pattern.groups else match.group(0))
+    for match in _QUOTED.finditer(line):
+        values.append(match.group(1))
+    return list(dict.fromkeys(values))
+
+
+def value_hints(value: str) -> str:
+    """Pistas no sensibles de un valor sospechoso: longitud y cuánto parece un marcador (ceros repetidos, FAKE...).
+
+    Se calculan localmente con el valor real y no lo revelan: los secretos reales no tienen rachas de caracteres
+    iguales ni están formados por palabras como «example».
+    """
+    covered: set[int] = set()
+    parts: list[str] = []
+    for match in _RUN.finditer(value):
+        covered.update(range(match.start(), match.end()))
+        parts.append(f"{len(match.group(0))} × «{match.group(1)}» seguidos")
+    for match in _MARKER_WORDS.finditer(value):
+        covered.update(range(match.start(), match.end()))
+        parts.append(f"la palabra «{match.group(0)}»")
+    percent = round(100 * len(covered) / max(len(value), 1))
+    detail = f" ({', '.join(parts)})" if parts else ""
+    return f"{len(value)} caracteres; {percent} % del valor parece un marcador de posición{detail}"
+
+
+def finding_hints(workspace: Path, file: str, line: int) -> str:
+    """Pistas de los valores sospechosos de una línea del workspace (vacío si no se puede leer)."""
+    root = workspace.resolve()
+    path = (root / file).resolve()
+    if line <= 0 or root not in path.parents:
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8").splitlines()[line - 1]
+    except (OSError, UnicodeDecodeError, IndexError):
+        return ""
+    return "; ".join(f"valor {i}: {value_hints(v)}" for i, v in enumerate(_suspect_values(text), 1))

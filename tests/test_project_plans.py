@@ -25,6 +25,8 @@ def test_los_planes_del_repo_son_validos(path):
     result = validate_plan(plan, ROOT, Settings())
     assert result.ok, [i.format() for i in result.errors]
     assert plan.name == path.stem
+    # un join 'all' que une caminos alternativos deja el nodo sin arrancar nunca (le pasó a fix-pr-feedback)
+    assert [i.node for i in result.warnings if i.code == "join_all_alternative_paths"] == []
 
 
 @pytest.mark.parametrize("path", sorted((ROOT / "scripts").glob("*.py")), ids=lambda p: p.name)
@@ -67,3 +69,32 @@ def test_implement_tasks_lanza_un_implement_task_por_tarea(tmp_path):
     assert {c["inputs"]["repo_url"] for c in children} == {"u"}
     # max_parallel=1: solo un hijo activo, el otro en cola
     assert sorted(c["status"] for c in children) == ["queued", "waiting"]
+
+
+def test_fix_pr_feedback_arranca_el_agente_cuando_hay_comentarios(tmp_path):
+    """Con comentarios de revisión el agente corrige y el flujo llega a la aprobación (antes 'fix' no arrancaba)."""
+    from tests.test_engine import standard_executors
+
+    executors = standard_executors()
+    executors["github.get_review_comments"] = Scripted("github.get_review_comments", lambda c: Outcome(
+        "has_comments", {"comments": [], "count": 1, "changes_requested": False, "text": "mejora esto"}))
+    executors["github.wait_checks"] = Scripted("github.wait_checks", lambda c: Outcome(
+        "success", {"state": "success", "failed_checks": [], "summary": ""}))
+    executors["secret_scan"] = Scripted("secret_scan", lambda c: Outcome("clean", {
+        "count": 0, "findings": [], "summary": "", "skipped": []}))
+    plan, _ = load_plan(ROOT / "plans" / "examples" / "fix-pr-feedback.json")
+    settings = dataclasses.replace(Settings(), root=ROOT, data_dir=tmp_path / "data", poll_interval_s=0.01)
+    merged = default_executors()
+    merged.update(executors)
+    engine = Engine(Store(settings.db_path), settings, executors=merged)
+    run_id = engine.create_run(plan, {"repo_url": "r", "branch": "KAN-1", "pr": "1"})
+    assert drive(engine, run_id) == "waiting"
+    states = {n: s["status"] for n, s in engine.store.all_nodes(run_id).items()}
+    assert states["fix"] == "succeeded" and states["approval"].startswith("waiting")
+    assert states["checks_inicial"] == "skipped"  # hubo comentarios: no se mira el CI del PR sin corregir
+
+    approval = engine.store.list_approvals("pending")[0]
+    assert engine.store.decide_approval(approval["id"], "approved", decided_by="test")
+    assert drive(engine, run_id) == "succeeded"
+    states = {n: s["status"] for n, s in engine.store.all_nodes(run_id).items()}
+    assert states["push"] == "succeeded" and states["checks"] == "succeeded"  # tras el push se espera el CI

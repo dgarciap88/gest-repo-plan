@@ -3,12 +3,34 @@
   "name": "fix-pr-feedback",
   "description": "Ciclo posterior al PR: lee los comentarios de revisión y los checks de un PR abierto, corrige con el agente, valida y vuelve a publicar en la misma rama (con aprobación manual) hasta que los checks pasen",
   "inputs": {
-    "repo_url": { "type": "string", "required": true, "description": "URL del repositorio" },
-    "branch": { "type": "string", "required": true, "description": "Rama remota del PR" },
-    "pr": { "type": "string", "required": true, "description": "Número o URL del PR" },
-    "base": { "type": "string", "default": "main", "description": "Rama base del PR" }
+    "repo_url": {
+      "type": "string",
+      "required": true,
+      "description": "URL del repositorio"
+    },
+    "branch": {
+      "type": "string",
+      "required": true,
+      "description": "Rama remota del PR"
+    },
+    "pr": {
+      "type": "string",
+      "required": true,
+      "description": "Número o URL del PR"
+    },
+    "base": {
+      "type": "string",
+      "default": "main",
+      "description": "Rama base del PR"
+    }
   },
-  "settings": { "max_agents_parallel": 2, "language": "es", "display_inputs": ["pr"] },
+  "settings": {
+    "max_agents_parallel": 2,
+    "language": "es",
+    "display_inputs": [
+      "pr"
+    ]
+  },
   "nodes": {
     "ws": {
       "type": "prepare_workspace",
@@ -20,14 +42,31 @@
     },
     "reviews": {
       "type": "github.get_review_comments",
-      "config": { "workspace": "${nodes.ws.outputs.path}", "pr": "${inputs.pr}" }
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "pr": "${inputs.pr}"
+      }
+    },
+    "checks_inicial": {
+      "type": "github.wait_checks",
+      "description": "CI del PR tal como está, cuando no hay comentarios de revisión",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "pr": "${inputs.pr}",
+        "max_wait_s": 1800
+      }
     },
     "checks": {
       "type": "github.wait_checks",
-      "config": { "workspace": "${nodes.ws.outputs.path}", "pr": "${inputs.pr}", "max_wait_s": 1800 }
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "pr": "${inputs.pr}",
+        "max_wait_s": 1800
+      }
     },
     "fix": {
       "type": "ia_agent",
+      "join": "any",
       "max_attempts": 3,
       "config": {
         "provider": "claude",
@@ -45,7 +84,15 @@
     },
     "tests": {
       "type": "run_command",
-      "config": { "workspace": "${nodes.ws.outputs.path}", "command": ["python", "-m", "pytest", "-q"] }
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "command": [
+          "python",
+          "-m",
+          "pytest",
+          "-q"
+        ]
+      }
     },
     "val": {
       "type": "ia_agent_validator",
@@ -54,14 +101,18 @@
         "model_tier": "cheap",
         "workspace": "${nodes.ws.outputs.path}",
         "prompt_template": "templates/prompts/validate-task.md",
-        "variables": { "task_path": "tasks/" },
+        "variables": {
+          "task_path": "tasks/"
+        },
         "max_retries": 2,
         "max_cost_usd": 0.5
       }
     },
     "scan": {
       "type": "secret_scan",
-      "config": { "workspace": "${nodes.ws.outputs.path}" }
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}"
+      }
     },
     "triage": {
       "type": "secret_triage",
@@ -84,7 +135,9 @@
     "approval": {
       "type": "manual_approval",
       "config": {
-        "approves": ["push"],
+        "approves": [
+          "push"
+        ],
         "message": "Revisa las correcciones antes de actualizar la rama del PR"
       }
     },
@@ -97,22 +150,77 @@
     }
   },
   "edges": [
-    { "from": "ws.ok", "to": "reviews" },
-    { "from": "reviews.has_comments", "to": "fix" },
-    { "from": "reviews.no_comments", "to": "checks" },
-    { "from": "checks.failure", "to": "fix" },
-    { "from": "fix.done", "to": "tests" },
-    { "from": "tests.ok", "to": "val" },
-    { "from": "tests.failed", "to": "fix" },
-    { "from": "val.changes_requested", "to": "fix" },
-    { "from": "val.approved", "to": "scan" },
-    { "from": "val.max_retries_reached", "to": "scan" },
-    { "from": "val.no_progress", "to": "scan" },
-    { "from": "scan.clean", "to": "commit" },
-    { "from": "scan.secrets_detected", "to": "triage" },
-    { "from": "triage.all_false_positive", "to": "commit" },
-    { "from": "commit.ok", "to": "approval" },
-    { "from": "approval.approved", "to": "push" },
-    { "from": "push.ok", "to": "checks" }
+    {
+      "from": "ws.ok",
+      "to": "reviews"
+    },
+    {
+      "from": "reviews.has_comments",
+      "to": "fix"
+    },
+    {
+      "from": "reviews.no_comments",
+      "to": "checks_inicial"
+    },
+    {
+      "from": "checks_inicial.failure",
+      "to": "fix"
+    },
+    {
+      "from": "checks.failure",
+      "to": "fix"
+    },
+    {
+      "from": "fix.done",
+      "to": "tests"
+    },
+    {
+      "from": "tests.ok",
+      "to": "val"
+    },
+    {
+      "from": "tests.failed",
+      "to": "fix"
+    },
+    {
+      "from": "val.changes_requested",
+      "to": "fix"
+    },
+    {
+      "from": "val.approved",
+      "to": "scan"
+    },
+    {
+      "from": "val.max_retries_reached",
+      "to": "scan"
+    },
+    {
+      "from": "val.no_progress",
+      "to": "scan"
+    },
+    {
+      "from": "scan.clean",
+      "to": "commit"
+    },
+    {
+      "from": "scan.secrets_detected",
+      "to": "triage"
+    },
+    {
+      "from": "triage.all_false_positive",
+      "to": "commit"
+    },
+    {
+      "from": "commit.ok",
+      "to": "approval"
+    },
+    {
+      "from": "approval.approved",
+      "to": "push"
+    },
+    {
+      "from": "push.ok",
+      "to": "checks"
+    }
   ]
 }
