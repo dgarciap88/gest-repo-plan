@@ -83,3 +83,40 @@ class ConfluenceCreatePage(NodeType):
         page_id: str
         url: str
         title: str
+
+
+@register
+class ConfluenceUpdatePage(NodeType):
+    type = "confluence.update_page"
+    family = "confluence"
+    side_effect = "external"
+    default_timeout_s = 180
+    description = (
+        "Reemplaza el contenido de una página de Confluence existente con los bloques indicados (nueva versión). "
+        "Idempotente: si la página ya lleva el marcador de este run y nodo, no vuelve a actualizarla. EFECTO "
+        "EXTERNO: requiere un manual_approval que lo cubra."
+    )
+    events = (
+        event("ok", "Página actualizada"),
+        event("already_done", "Este run ya había actualizado la página"),
+        event("not_found", "La página no existe o no hay permiso", failure=True),
+        event("failed", "La llamada a Confluence falló", failure=True),
+    )
+    example = {
+        "page_id": "458753",
+        "blocks": [{"type": "heading", "level": 1, "text": "Informe actualizado"},
+                   {"type": "paragraph", "text": "${nodes.dev.outputs.summary}"}],
+    }
+
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        page_id: str = Field(description="Id de la página a actualizar")
+        title: str = Field(default="", description="Título nuevo; vacío conserva el actual")
+        blocks: Union[list[Block], TemplateStr] = Field(description="Contenido nuevo de la página")  # noqa: UP007
+
+    class OutputsModel(BaseModel):
+        page_id: str = Field(description="Id de la página")
+        url: str = Field(description="Enlace a la página")
+        title: str = Field(description="Título tras la actualización")
+        version: int = Field(description="Número de versión resultante")

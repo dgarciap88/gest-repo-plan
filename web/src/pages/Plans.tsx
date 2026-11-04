@@ -6,8 +6,15 @@ export function Plans() {
   const plans = useQuery({ queryKey: ['plans'], queryFn: api.plans })
   return (
     <div className="page">
-      <h1>Planes</h1>
-      <p className="dim">Planes JSON de <code>plans/</code> y <code>plans/examples/</code>. Los escribe normalmente una IA; aquí se visualizan y se lanzan.</p>
+      <div className="toolbar">
+        <h1>Planes</h1>
+        <Link className="btn primary" to="/plans/new">
+          + Nuevo plan
+        </Link>
+      </div>
+      <p className="dim">
+        Planes JSON de <code>plans/</code> y <code>plans/examples/</code>. Los escribe normalmente una IA; aquí se visualizan, se editan y se lanzan.
+      </p>
       {plans.isLoading && <p className="dim">Cargando…</p>}
       <div className="grid-cards">
         {(plans.data ?? []).map((p) => (

@@ -100,6 +100,7 @@ def flow(tmp_path):
     scripted("git.commit", Outcome("ok", {"commit_sha": "s", "subject": "ABC-123: x"}))
     scripted("git.push", Outcome("ok", {"pushed_sha": "s", "remote_branch": "ABC-123"}))
     scripted("git.create_pr", Outcome("ok", {"pr_number": 1, "pr_url": "http://pr"}))
+    scripted("github.wait_checks", Outcome("failure", {"state": "failure", "failed_checks": [], "summary": ""}))
     scripted("cleanup_workspace", Outcome("ok"))
     engine = Engine(Store(settings.db_path), settings, executors=executors)
 
@@ -123,6 +124,7 @@ def test_rama_distinta_abre_pr_contra_la_rama_de_origen(flow):
     assert configs["prepare_workspace"]["base_branch"] == "develop"
     assert configs["ia_agent"]["skill"] == "refactor" and configs["ia_agent"]["provider"] == "copilot"
     assert configs["ia_agent"]["model"] == "auto"
+    assert statuses(engine, run_id)["cleanup"] == "succeeded"  # aunque el CI falle, el plan termina y lo deja dicho
 
 
 def test_misma_rama_hace_push_y_no_abre_pr(flow):
@@ -132,3 +134,21 @@ def test_misma_rama_hace_push_y_no_abre_pr(flow):
     states = statuses(engine, run_id)
     assert states["pr"] == "skipped" and states["cleanup"] == "succeeded"
     assert json.dumps(engine.store.latest_outputs(run_id, "same_branch")).count("same_branch") >= 1
+
+
+def test_el_triaje_de_secretos_encamina_los_hallazgos(flow):
+    engine, go = flow
+    finding = {"file": "a.py", "line": 1, "kind": "x", "sample": "***"}
+    engine.executors["secret_scan"] = Scripted("secret_scan", lambda c: Outcome(
+        "secrets_detected", {"count": 1, "findings": [finding], "summary": "", "skipped": []}))
+    engine.executors["secret_triage"] = Scripted("secret_triage", lambda c: Outcome(
+        "all_false_positive", {"confirmed": [], "dismissed": [finding], "summary": ""}))
+    run_id, called, _ = go({"source_branch": "develop"})
+    assert statuses(engine, run_id)["triage"] == "succeeded" and "git.commit" in called  # falso positivo: sigue
+
+    engine.executors["secret_triage"] = Scripted("secret_triage", lambda c: Outcome(
+        "confirmed", {"confirmed": [finding], "dismissed": [], "summary": ""}, error="1 secreto"))
+    run = engine.create_run(load_plan(ROOT / "plans" / "apply-skill.json")[0], {**INPUTS, "source_branch": "develop"})
+    assert drive(engine, run) == "failed"  # secreto confirmado: no se llega a hacer commit ni a pedir aprobación
+    states = statuses(engine, run)
+    assert states["triage"] == "failed" and states["commit"] == "skipped" and states["approval"] == "skipped"

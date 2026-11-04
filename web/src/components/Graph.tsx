@@ -26,16 +26,17 @@ interface NodeData extends Record<string, unknown> {
   state?: NodeState
   selected: boolean
   direction: Direction
+  issue?: 'error' | 'warning'
 }
-type PlanNodeType = Node<NodeData, 'plan'>
+export type PlanNodeType = Node<NodeData, 'plan'>
 
-function PlanNode({ data }: NodeProps<PlanNodeType>) {
+export function PlanNode({ data }: NodeProps<PlanNodeType>) {
   const status = data.state?.status
   const vertical = data.direction === 'TB'
   // los bucles salen por un lateral (derecha en vertical, abajo en horizontal) para no tapar las aristas de ida
   const loopSide = vertical ? Position.Right : Position.Bottom
   return (
-    <div className={`pnode ${status ? `st-${status}` : 'st-plain'} ${data.selected ? 'sel' : ''}`} title={data.description}>
+    <div className={`pnode ${status ? `st-${status}` : 'st-plain'} ${data.selected ? 'sel' : ''} ${data.issue ? `issue-${data.issue}` : ''}`} title={data.description}>
       <Handle type="target" position={vertical ? Position.Top : Position.Left} />
       <div className="pn-head">
         <span className="pn-id">{data.id}</span>
@@ -59,7 +60,7 @@ function PlanNode({ data }: NodeProps<PlanNodeType>) {
   )
 }
 
-const nodeTypes = { plan: PlanNode }
+export const nodeTypes = { plan: PlanNode }
 
 /** Reencuadra cuando los nodos ya están medidos y cada vez que cambia la disposición. */
 function FitOnLayout({ token }: { token: string }) {

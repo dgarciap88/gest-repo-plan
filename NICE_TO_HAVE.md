@@ -8,13 +8,13 @@ Leyenda de prioridad sugerida al retomarlos: **A** (primero) · **B** · **C**.
 
 ## 1. Seguridad
 
-### 1.1 Protección de la API local frente al navegador — **A** _(hecho, salvo el nonce por aprobación)_
+### 1.1 Protección de la API local frente al navegador — **A** _(hecho, incluido el nonce por aprobación)_
 Aunque el backend escuche solo en `127.0.0.1`, cualquier página web abierta en la máquina puede lanzar peticiones a `localhost` (CSRF / DNS rebinding), incluida la decisión de una aprobación pendiente.
 - Token aleatorio por instalación, enviado en una cabecera propia (la UI lo recibe al servirse desde el backend).
 - Validar `Origin` y `Host`; CORS cerrado.
 - Para `POST /api/approvals/{id}/decision`, confirmación adicional (por ejemplo, un nonce de un solo uso emitido al abrir la aprobación).
 
-### 1.2 Escaneo de secretos antes del push — **A** _(hecha la pasada determinista, nodo `secret_scan`; falta el triaje con IA)_
+### 1.2 Escaneo de secretos antes del push — **A** _(hecho: `secret_scan` determinista y `secret_triage` con IA)_
 El código lo escribe un agente; conviene revisar el diff antes de publicarlo (en el `preview` de `git.push`).
 
 Enfoque propuesto: **híbrido, no solo IA**.
@@ -52,7 +52,7 @@ Temporizadores y `deadline` con hora absoluta, tolerantes a suspensión/hibernac
 
 ## 3. Huecos funcionales
 
-### 3.1 Ciclo posterior al PR — **A** _(hecho: `plans/examples/fix-pr-feedback.json`; falta `github.get_failed_logs`)_
+### 3.1 Ciclo posterior al PR — **A** _(hecho: `fix-pr-feedback`, `github.get_failed_logs` y espera de checks en los planes)_
 Si `github.wait_checks` falla o llegan comentarios de revisión, devolverlos al agente para corregir y volver a empujar. Nodos nuevos: `github.get_failed_logs`, `github.get_review_comments`; y un segundo ciclo con su propio límite de reintentos.
 
 ### 3.2 Ejecutar tests, lint o build en el workspace — **A** (promovido al hito Bootstrap, ver DESIGN.md 15.1)

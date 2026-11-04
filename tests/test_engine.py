@@ -421,3 +421,16 @@ def test_reactivar_un_hijo_reabre_la_espera_del_padre(tmp_path):
     assert drive(engine, run_id) == "succeeded"
     assert engine.store.get_run(failed_child["id"])["status"] == "succeeded"
     assert engine.store.latest_outputs(run_id, "wait")["failed_count"] == 0
+
+
+def test_los_hijos_heredan_el_titulo_del_padre_con_su_numero(tmp_path):
+    write_child(tmp_path)
+    engine = make_engine(tmp_path, standard_executors())
+    plan, _ = parse_plan(parent_plan(items=2))
+    run_id = engine.create_run(plan, {}, title="Lote de tareas")
+    drive(engine, run_id)
+    assert engine.store.get_run(run_id)["title"] == "Lote de tareas"
+    assert [c["title"] for c in engine.store.children_of(run_id)] == ["Lote de tareas · 1", "Lote de tareas · 2"]
+    untitled = build(engine, parent_plan(items=1))
+    drive(engine, untitled)
+    assert [c["title"] for c in engine.store.children_of(untitled)] == [None]

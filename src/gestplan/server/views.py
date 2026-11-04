@@ -125,7 +125,8 @@ def run_summary(engine: Engine, run: dict) -> dict[str, Any]:
     children = store.children_of(run["id"])
     pending = sum(1 for a in store.list_approvals("pending") if a["run_id"] == run["id"])
     return {
-        "id": run["id"], "plan_name": run["plan_name"], "status": run["status"], "inputs": run["inputs"],
+        "id": run["id"], "title": run.get("title"), "plan_name": run["plan_name"], "status": run["status"],
+        "inputs": run["inputs"],
         "created_at": run["created_at"], "started_at": started, "finished_at": finished,
         "error": run["error"], "parent_run_id": run["parent_run_id"], "parent_node_id": run["parent_node_id"],
         "cost_usd": round(store.total_cost(run["id"]), 6),

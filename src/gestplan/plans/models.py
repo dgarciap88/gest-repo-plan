@@ -65,6 +65,7 @@ class PlanSettings(BaseModel):
     on_unhandled_failure: Literal["fail_run", "skip_dependents"] = "fail_run"
     language: Literal["es", "en"] = "es"
     run_timeout_s: int | None = Field(default=None, ge=1)
+    max_cost_usd: float | None = Field(default=None, gt=0, description="Presupuesto de IA de este run (y sus hijos)")
     display_inputs: list[str] = Field(default_factory=list)
 
 

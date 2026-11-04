@@ -16,7 +16,7 @@ export function useRealtime(): boolean {
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
-    const source = new EventSource(apiToken() ? `/api/events?token=${encodeURIComponent(apiToken())}` : '/api/events')
+    let source: EventSource | null = null
     let timer: number | undefined
     const runs = new Set<string>()
     const nodes = new Set<string>()
@@ -32,19 +32,33 @@ export function useRealtime(): boolean {
       nodes.clear()
     }
 
-    source.onopen = () => {
-      setConnected(true)
-      flush() // al (re)conectar se refresca todo, por si se perdieron eventos
+    const open = () => {
+      if (source) return
+      source = new EventSource(apiToken() ? `/api/events?token=${encodeURIComponent(apiToken())}` : '/api/events')
+      source.onopen = () => {
+        setConnected(true)
+        flush() // al (re)conectar se refresca todo, por si se perdieron eventos
+      }
+      source.onerror = () => setConnected(false)
+      source.addEventListener('transition', (message) => {
+        const event: TransitionEvent = JSON.parse((message as MessageEvent).data)
+        runs.add(event.run_id)
+        if (event.node_id) nodes.add(`${event.run_id}/${event.node_id}`)
+        if (timer === undefined) timer = window.setTimeout(flush, 150)
+      })
     }
-    source.onerror = () => setConnected(false)
-    source.addEventListener('transition', (message) => {
-      const event: TransitionEvent = JSON.parse((message as MessageEvent).data)
-      runs.add(event.run_id)
-      if (event.node_id) nodes.add(`${event.run_id}/${event.node_id}`)
-      if (timer === undefined) timer = window.setTimeout(flush, 150)
-    })
+    const close = () => {
+      source?.close()
+      source = null
+    }
+    // una pestaña en segundo plano suelta su conexión: el navegador solo admite unas 6 por servidor y varias pestañas
+    // abiertas dejarían sin conexión a las peticiones normales
+    const onVisibility = () => (document.hidden ? close() : open())
+    document.addEventListener('visibilitychange', onVisibility)
+    if (!document.hidden) open()
     return () => {
-      source.close()
+      document.removeEventListener('visibilitychange', onVisibility)
+      close()
       if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [client])

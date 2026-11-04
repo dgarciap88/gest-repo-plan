@@ -36,6 +36,13 @@ def _env_int(name: str, default: int) -> int:
     return int(raw) if raw.isdigit() else default
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(float(os.environ.get(name, "").strip()), 0.0)
+    except ValueError:
+        return default
+
+
 def _env_list(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     raw = os.environ.get(name, "").strip()
     return tuple(item.strip() for item in raw.split(",") if item.strip()) if raw else default
@@ -80,6 +87,9 @@ class Settings:
     git_user_name: str = ""
     git_user_email: str = ""
     allowed_hosts: tuple[str, ...] = ()
+    # Presupuestos en USD (0 = sin límite): por run (con sus hijos) y por día natural
+    run_budget_usd: float = 0.0
+    daily_budget_usd: float = 0.0
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -121,6 +131,8 @@ class Settings:
             git_user_name=env("GP_GIT_USER_NAME", "").strip(),
             git_user_email=env("GP_GIT_USER_EMAIL", "").strip(),
             allowed_hosts=_env_list("GP_ALLOWED_HOSTS", ()),
+            run_budget_usd=_env_float("GP_RUN_BUDGET_USD", 0.0),
+            daily_budget_usd=_env_float("GP_DAILY_BUDGET_USD", 0.0),
         )
 
     def tier_allowed(self, tier: str) -> bool:

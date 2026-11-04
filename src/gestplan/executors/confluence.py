@@ -82,3 +82,46 @@ class ConfluenceCreatePageExec(NodeExecutor):
         if links.get("webui"):
             return f"{links.get('base') or base}{links['webui']}"
         return f"{base}/pages/viewpage.action?pageId={page['id']}"
+
+
+class ConfluenceUpdatePageExec(ConfluenceCreatePageExec):
+    type = "confluence.update_page"
+
+    async def preview(self, ctx: ExecContext) -> dict[str, Any] | None:
+        shown = await super().preview(ctx) or {"kind": "none", "message": "sin vista previa"}
+        return {**shown, "title": f"Reemplaza el contenido de la página {ctx.config['page_id']}"}
+
+    async def run(self, ctx: ExecContext) -> Outcome:
+        cfg = ctx.settings
+        if not (cfg.confluence_base_url and cfg.confluence_email and cfg.confluence_token):
+            return Outcome("failed", error="faltan CONFLUENCE_BASE_URL, el correo o el token en el .env")
+        try:
+            storage = self._body(ctx)
+        except (ValueError, KeyError, TypeError) as exc:
+            return Outcome("failed", error=f"bloques no válidos: {exc}")
+        headers = {"Authorization": basic_auth(cfg.confluence_email, cfg.confluence_token)}
+        url = f"{cfg.confluence_base_url}/rest/api/content/{quote(str(ctx.config['page_id']))}"
+        timeout = min(ctx.engine.node_timeout(ctx.run, ctx.node_id) or 60, 60)
+
+        current = await ctx.http("GET", f"{url}?expand=body.storage,version", headers=headers, timeout_s=timeout)
+        if current.status == 404:
+            return Outcome("not_found", error=f"no existe la página {ctx.config['page_id']}")
+        if not current.ok:
+            return Outcome("failed", error=f"Confluence respondió {current.status}: {current.text[:300]}")
+        page = current.json()
+        title = ctx.config.get("title") or page["title"]
+        version = int(page["version"]["number"])
+        done = {"page_id": str(page["id"]), "title": page["title"], "version": version,
+                "url": self._url(cfg.confluence_base_url, page)}
+        if self._marker(ctx) in ((page.get("body") or {}).get("storage") or {}).get("value", ""):
+            return Outcome("already_done", done)
+
+        payload = {"id": page["id"], "type": "page", "title": title,
+                   "version": {"number": version + 1, "message": f"gestplan {ctx.run_id}"},
+                   "body": {"storage": {"value": storage, "representation": "storage"}}}
+        updated = await ctx.http("PUT", url, headers=headers, json_body=payload, timeout_s=timeout)
+        if not updated.ok:
+            return Outcome("failed", error=f"Confluence respondió {updated.status}: {updated.text[:300]}")
+        result = updated.json()
+        return Outcome("ok", {"page_id": str(result["id"]), "title": title, "version": version + 1,
+                              "url": self._url(cfg.confluence_base_url, result)})

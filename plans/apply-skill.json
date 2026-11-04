@@ -56,8 +56,18 @@
       "type": "secret_scan",
       "config": { "workspace": "${nodes.ws.outputs.path}" }
     },
+    "triage": {
+      "type": "secret_triage",
+      "config": {
+        "workspace": "${nodes.ws.outputs.path}",
+        "findings": "${nodes.scan.outputs.findings}",
+        "model_tier": "cheap",
+        "max_cost_usd": 0.2
+      }
+    },
     "commit": {
       "type": "git.commit",
+      "join": "any",
       "config": {
         "workspace": "${nodes.ws.outputs.path}",
         "subject": "${nodes.dev.outputs.suggested_commit_subject}",
@@ -97,6 +107,10 @@
         "body": "${nodes.dev.outputs.suggested_pr_body}"
       }
     },
+    "checks": {
+      "type": "github.wait_checks",
+      "config": { "workspace": "${nodes.ws.outputs.path}", "pr": "${nodes.pr.outputs.pr_url}", "max_wait_s": 1800 }
+    },
     "cleanup": {
       "type": "cleanup_workspace",
       "join": "any",
@@ -111,11 +125,16 @@
     { "from": "val.max_retries_reached", "to": "scan" },
     { "from": "val.no_progress", "to": "scan" },
     { "from": "scan.clean", "to": "commit" },
+    { "from": "scan.secrets_detected", "to": "triage" },
+    { "from": "triage.all_false_positive", "to": "commit" },
     { "from": "commit.ok", "to": "approval" },
     { "from": "approval.approved", "to": "push" },
     { "from": "push.ok", "to": "same_branch" },
     { "from": "same_branch.other_branch", "to": "pr" },
     { "from": "same_branch.same_branch", "to": "cleanup" },
-    { "from": "pr.ok", "to": "cleanup" }
+    { "from": "pr.ok", "to": "checks" },
+    { "from": "checks.success", "to": "cleanup" },
+    { "from": "checks.failure", "to": "cleanup" },
+    { "from": "checks.timeout", "to": "cleanup" }
   ]
 }

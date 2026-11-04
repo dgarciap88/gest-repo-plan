@@ -32,7 +32,7 @@ gestplan catalog > catalogo.md                           # catálogo de nodos pa
 gestplan validate plans/examples/implement-task.json     # valida un plan (códigos de error estables)
 gestplan dry-run plans/examples/implement-task.json --input task_id=TASK-001 --input repo_url=<url>
 
-gestplan run implement-task --input task_id=TASK-001 --input repo_url=<url>   # ejecuta hasta terminar o esperar
+gestplan run implement-task --input task_id=TASK-001 --input repo_url=<url> --title "Tarea 1"   # --title identifica el trabajo
 gestplan run implement-tasks --input task_ids=TASK-001,TASK-002 --input repo_url=<url>
 gestplan status [run_id]                                 # runs, nodos, aprobaciones pendientes
 gestplan approvals list | show <id> | approve <id> | reject <id> [-c comentario]

@@ -69,6 +69,8 @@ def flow(tmp_path):
     scripted("git.commit", Outcome("ok", {"commit_sha": "s", "subject": "ABC-1: x"}))
     scripted("git.push", Outcome("ok", {"pushed_sha": "s", "remote_branch": "ABC-1"}))
     scripted("git.create_pr", Outcome("ok", {"pr_number": 1, "pr_url": "http://pr/1"}))
+    scripted("github.wait_checks", Outcome("success", {"state": "success", "failed_checks": [],
+                                                       "summary": "- build: pass"}))
     scripted("cleanup_workspace", Outcome("ok"))
     engine = Engine(Store(settings.db_path), settings, executors=executors, http=http)
 
@@ -104,7 +106,9 @@ def test_rama_distinta_abre_pr_y_lo_comenta_en_jira(flow):
     run_id = go({"source_branch": "develop"})
     states = statuses(engine, run_id)
     assert states["pr"] == "succeeded" and states["comment_pr"] == "succeeded" and states["comment_push"] == "skipped"
-    assert "http://pr/1" in adf_to_text(fake.comments[-1]["body"]) and len(fake.comments) == 2
+    comment = adf_to_text(fake.comments[-1]["body"])
+    assert "http://pr/1" in comment and len(fake.comments) == 2
+    assert "checks de CI: success" in comment and states["checks"] == "succeeded"  # el comentario incluye el CI
 
 
 def test_misma_rama_no_abre_pr_y_comenta_el_push(flow):

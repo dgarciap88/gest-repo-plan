@@ -83,6 +83,7 @@ class GitCreatePr(NodeType):
     type = "git.create_pr"
     family = "git"
     side_effect = "external"
+    editable_fields = ("title", "body")
     default_timeout_s = 120
     description = (
         "Crea un Pull Request con gh (o reutiliza el que ya exista para la rama). EFECTO EXTERNO: "

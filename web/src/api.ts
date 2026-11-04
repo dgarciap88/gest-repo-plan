@@ -2,6 +2,7 @@
 
 export interface RunSummary {
   id: string
+  title: string | null
   plan_name: string
   status: string
   inputs: Record<string, unknown>
@@ -47,15 +48,20 @@ export interface NodeState {
   last_error: string | null
   cost_usd: number
 }
+/** Textos editados al aprobar: nodo → campo → valor. */
+export type Overrides = Record<string, Record<string, string>>
+
 export interface Preview {
   kind: string
   title?: string
   text?: string
   items?: Record<string, string>
   message?: string
+  editable?: Record<string, string>
 }
 export interface Approval {
   id: number
+  nonce: string
   run_id: string
   node_id: string
   attempt: number
@@ -68,6 +74,7 @@ export interface Approval {
   created_at: string
   decided_at: string | null
   plan_name?: string
+  run_title?: string | null
   inputs?: Record<string, unknown>
 }
 export interface RunDetail {
@@ -135,12 +142,14 @@ export interface TimelineRow {
 export interface CleanupPreview {
   count: number
   runs_total: number
-  runs: { id: string; plan_name: string; status: string; finished_at: string | null }[]
+  runs: { id: string; title: string | null; plan_name: string; status: string; finished_at: string | null }[]
 }
 export interface Stats {
   runs: Record<string, number>
   pending_approvals: number
   cost_today_usd: number
+  daily_budget_usd: number
+  run_budget_usd: number
   interrupted_nodes: number
 }
 export interface PlanItem {
@@ -196,6 +205,8 @@ export interface CatalogNode {
   side_effect: string
   events: { name: string; description: string; failure: boolean }[]
   config_fields: CatalogField[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config_schema: { properties?: Record<string, any>; required?: string[] }
   config_structures: CatalogStructure[]
   outputs_fields: CatalogField[]
   outputs_structures: CatalogStructure[]
@@ -276,7 +287,8 @@ export const api = {
     }),
   deleteRun: (id: string) => request(`/runs/${id}`, { method: 'DELETE' }),
   timeline: (id: string) => request<TimelineRow[]>(`/runs/${id}/timeline`),
-  createRun: (plan: string, inputs: Record<string, string>) => post<{ id: string }>('/runs', { plan, inputs }),
+  createRun: (plan: string, inputs: Record<string, string>, title?: string) =>
+    post<{ id: string }>('/runs', { plan, inputs, title: title || undefined }),
   cancelRun: (id: string) => post(`/runs/${id}/cancel`),
   retryNode: (id: string, node: string) => post(`/runs/${id}/nodes/${node}/retry`),
   node: (id: string, node: string) => request<NodeDetail>(`/runs/${id}/nodes/${node}`),
@@ -286,10 +298,12 @@ export const api = {
     request<{ name: string; text: string }>(`/runs/${id}/nodes/${node}/attempts/${attempt}/files/${name}`),
   invocation: (id: number) => request<InvocationFull>(`/invocations/${id}`),
   approvals: (status = 'pending') => request<Approval[]>(`/approvals?status=${status}`),
-  decide: (id: number, decision: 'approved' | 'rejected', comment: string) =>
-    post(`/approvals/${id}/decision`, { decision, comment: comment || null }),
+  decide: (id: number, nonce: string, decision: 'approved' | 'rejected', comment: string, overrides: Overrides = {}) =>
+    post(`/approvals/${id}/decision`, { decision, comment: comment || null, nonce, overrides }),
   plans: () => request<PlanItem[]>('/plans'),
   plan: (name: string) => request<PlanDetail>(`/plans/${name}`),
   catalog: () => request<Catalog>('/catalog'),
+  validatePlan: (plan: unknown) => post<{ ok: boolean; issues: Issue[] }>('/plans/validate', plan),
+  savePlan: (name: string, plan: unknown) => request<{ ok: boolean; path: string }>(`/plans/${name}`, { method: 'PUT', body: JSON.stringify(plan) }),
   catalogMarkdown: () => request<string>('/catalog/markdown'),
 }

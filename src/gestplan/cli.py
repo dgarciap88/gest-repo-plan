@@ -199,7 +199,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _print_issues(issues)
         return 1
     try:
-        run_id = engine.create_run(plan, _parse_inputs(args.input))
+        run_id = engine.create_run(plan, _parse_inputs(args.input), title=args.title)
     except PlanInvalid as exc:
         _print_issues(exc.issues)
         return 1
@@ -385,6 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="lanza un plan (ruta o nombre) y lo ejecuta hasta que termina o espera")
     run.add_argument("plan")
+    run.add_argument("--title", help="título que identifica este trabajo en las listas")
     run.add_argument("--input", action="append", default=[], metavar="NOMBRE=VALOR")
     common(run)
     run.set_defaults(func=_cmd_run)

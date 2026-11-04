@@ -78,7 +78,7 @@ export function CleanupPanel({ onClose }: { onClose: () => void }) {
         <ul className="plain small dim">
           {preview.data.runs.slice(0, 5).map((r) => (
             <li key={r.id}>
-              {r.id} · {r.plan_name} · {r.status}
+              {r.title ? `${r.title} · ` : ''}{r.id} · {r.plan_name} · {r.status}
             </li>
           ))}
           {count > 5 && <li>… y {count - 5} más</li>}

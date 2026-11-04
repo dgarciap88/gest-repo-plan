@@ -37,8 +37,9 @@ export function RunPage() {
       <header className="run-head">
         <div>
           <h1>
-            {info.plan_name} <StatusBadge status={info.status} />
+            {info.title || info.plan_name} <StatusBadge status={info.status} />
           </h1>
+          {info.title && <p className="dim small">Plan {info.plan_name} · {info.id}</p>}
           <p className="dim">{fmtInputs(info.inputs)}</p>
           <p className={`last ${info.last.level}`} style={{ maxWidth: 'none', whiteSpace: 'normal' }}>
             {info.last.text} <span className="dim small">· {fmtAgo(info.last.at)}</span>

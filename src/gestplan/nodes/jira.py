@@ -117,6 +117,7 @@ class JiraComment(NodeType):
     type = "jira.comment"
     family = "jira"
     side_effect = "external"
+    editable_fields = ("body",)
     default_timeout_s = 120
     description = (
         "Añade un comentario (Markdown básico: párrafos, #, listas, bloques de código y **negrita**, convertido "
@@ -184,3 +185,42 @@ class JiraCreateSubtask(NodeType):
     class OutputsModel(BaseModel):
         keys: list[str]
         created: int
+
+
+@register
+class JiraCreateIssue(NodeType):
+    type = "jira.create_issue"
+    family = "jira"
+    side_effect = "external"
+    default_timeout_s = 180
+    editable_fields = ("summary", "description")
+    description = (
+        "Crea un ticket en un proyecto de Jira. Idempotente: lleva una etiqueta única del run y nodo y, si ya existe "
+        "un ticket con ella, lo devuelve sin crear otro. EFECTO EXTERNO: requiere un manual_approval que lo cubra."
+    )
+    events = (
+        event("ok", "Ticket creado"),
+        event("already_done", "Este run ya había creado el ticket"),
+        event("issue_type_not_found", "El proyecto no tiene ese tipo de ticket", failure=True),
+        event("not_found", "El proyecto no existe o no hay permiso para verlo", failure=True),
+        event("failed", "La llamada a Jira falló", failure=True),
+    )
+    example = {"project": "KAN", "issue_type": "Task", "summary": "Revisar ${inputs.tema}", "labels": ["gestplan"]}
+
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        project: str = Field(description="Clave del proyecto, p. ej. KAN")
+        summary: str = Field(description="Título del ticket")
+        description: str = Field(default="", description="Descripción (Markdown básico, se convierte a ADF)")
+        issue_type: str = Field(
+            default="Task",
+            description="Tipo de ticket tal como lo llama el proyecto (Task/Tarea, Bug/Error, Story/Historia...)",
+        )
+        labels: list[str] = Field(default_factory=list, description="Etiquetas adicionales")
+        parent_key: str = Field(default="", description="Clave del ticket padre (épica) si lo hay")
+
+    class OutputsModel(BaseModel):
+        key: str = Field(description="Clave del ticket creado")
+        id: str = Field(description="Id interno del ticket")
+        url: str = Field(description="Enlace al ticket")

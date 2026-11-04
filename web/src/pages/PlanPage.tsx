@@ -25,8 +25,9 @@ function LaunchForm({ plan, inputs, valid }: { plan: string; inputs: Record<stri
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(inputs).map(([name, spec]) => [name, spec.default != null ? String(spec.default) : ''])),
   )
+  const [title, setTitle] = useState('')
   const launch = useMutation({
-    mutationFn: () => api.createRun(plan, Object.fromEntries(Object.entries(values).filter(([, v]) => v !== ''))),
+    mutationFn: () => api.createRun(plan, Object.fromEntries(Object.entries(values).filter(([, v]) => v !== '')), title.trim()),
     onSuccess: (result) => navigate(`/runs/${result.id}`),
   })
   const detail = launch.error instanceof ApiError ? (launch.error.detail as { issues?: Issue[] } | undefined) : undefined
@@ -40,6 +41,12 @@ function LaunchForm({ plan, inputs, valid }: { plan: string; inputs: Record<stri
       }}
     >
       <h2>Lanzar</h2>
+      <label className="field">
+        <span>
+          Título <span className="dim small">(opcional: identifica este trabajo en las listas)</span>
+        </span>
+        <input value={title} maxLength={120} placeholder="p. ej. KAN-2 · documentación de saludos" onChange={(e) => setTitle(e.target.value)} />
+      </label>
       {Object.entries(inputs).map(([name, spec]) => (
         <label key={name} className="field">
           <span>
@@ -76,7 +83,12 @@ export function PlanPage() {
       <div className="crumbs">
         <Link to="/plans">Planes</Link> › {data.name}
       </div>
-      <h1>{data.name}</h1>
+      <div className="toolbar">
+        <h1>{data.name}</h1>
+        <Link className="btn small" to={`/plans/${data.name}/edit`}>
+          ✎ Editar
+        </Link>
+      </div>
       <p className="dim">{data.plan?.description}</p>
       {data.graph ? <Graph graph={data.graph} height={460} /> : <div className="card error">El plan no se pudo cargar.</div>}
       <div className="two-cols">

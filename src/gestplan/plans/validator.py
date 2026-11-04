@@ -29,6 +29,11 @@ def validate_plan(
     issues: list[Issue] = []
     types: dict[str, type[NodeType]] = {}
 
+    cap = ctx.settings.run_budget_usd
+    if cap and plan.settings.max_cost_usd and plan.settings.max_cost_usd > cap:
+        issues.append(error("budget_above_cap",
+                            f"settings.max_cost_usd={plan.settings.max_cost_usd} supera el tope global por run ({cap})",
+                            path="settings.max_cost_usd"))
     _check_inputs(ctx, issues)
     _check_nodes(ctx, issues, types)
     _check_edges(ctx, issues, types)
@@ -189,6 +194,26 @@ def _check_node_rules(
         issues.extend(node_type.check(node_id, ctx.plan.nodes[node_id], ctx))
 
 
+def _check_alternative_joins(ctx: ValidationContext, issues: list[Issue]) -> None:
+    """Aviso típico en planes escritos a mano o por IA: un nodo con join 'all' que recibe de A y de B, donde B se
+    alcanza desde A, casi siempre une dos caminos ALTERNATIVOS; con 'all' esperaría a ambos y nunca arrancaría."""
+    graph = ctx.graph
+    back = graph.back_edges()
+    for node_id, spec in ctx.plan.nodes.items():
+        if spec.join != "all":
+            continue
+        sources = sorted(p for p in graph.pred[node_id] if (p, node_id) not in back)
+        pairs = [(a, b) for a in sources for b in sources if a != b and a in graph.ancestors(b)]
+        if pairs:  # un aviso por nodo
+            first, second = pairs[0]
+            issues.append(warning(
+                "join_all_alternative_paths",
+                f"'{node_id}' recibe de '{first}' y de '{second}', que se alcanza desde '{first}': si son "
+                "caminos alternativos, con join 'all' no arrancará nunca",
+                node=node_id, path="join",
+                hint=f"pon \"join\": \"any\" en '{node_id}' si basta con que llegue uno de los caminos"))
+
+
 def _check_graph(
     ctx: ValidationContext, issues: list[Issue], types: dict[str, type[NodeType]]
 ) -> None:
@@ -209,6 +234,8 @@ def _check_graph(
                 node=node_id,
             )
         )
+
+    _check_alternative_joins(ctx, issues)
 
     bounded = {node_id for node_id, spec in ctx.plan.nodes.items() if spec.max_attempts}
     for source, event_name, target in graph.edges:

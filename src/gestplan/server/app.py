@@ -8,7 +8,6 @@ import json
 import re
 import secrets
 from contextlib import asynccontextmanager, suppress
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,15 +17,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from gestplan.catalog import render_markdown
-from gestplan.db import Store
+from gestplan.db import Store, local_midnight
 from gestplan.engine.engine import Engine, PlanInvalid
-from gestplan.plans.loader import parse_plan
+from gestplan.nodes.registry import get_node_type
+from gestplan.plans.loader import find_plan_file, parse_plan
+from gestplan.plans.models import Plan
 from gestplan.plans.validator import validate_plan
 from gestplan.server import views
 from gestplan.server.supervisor import Supervisor
 from gestplan.settings import Settings
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+PLAN_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
 CSRF_HEADER = "x-gestplan"
 TOKEN_HEADER = "x-gestplan-token"
@@ -36,6 +38,21 @@ def _host_name(value: str) -> str:
     """Nombre sin puerto de una cabecera Host u Origin (admite IPv6 entre corchetes)."""
     value = value.split("://", 1)[-1].split("/", 1)[0]
     return value.split("]")[0] + "]" if value.startswith("[") else value.split(":")[0]
+
+
+def _check_overrides(engine: Engine, approval: dict, overrides: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+    """Solo se pueden editar campos declarados como editables de nodos que la aprobación cubre."""
+    run = engine.store.get_run(approval["run_id"])
+    plan = Plan.model_validate(run["plan_snapshot"]) if run else None
+    for node_id, fields in overrides.items():
+        spec = plan.nodes.get(node_id) if plan else None
+        node_type = get_node_type(spec.type) if spec else None
+        if node_id not in approval["covers"] or node_type is None:
+            raise HTTPException(422, f"la aprobación no cubre el nodo '{node_id}'")
+        for field in fields:
+            if field not in node_type.editable_fields:
+                raise HTTPException(422, f"el campo '{field}' de '{node_id}' no se puede editar al aprobar")
+    return overrides
 
 
 def guard_api(app: FastAPI, settings: Settings) -> None:
@@ -65,6 +82,7 @@ def guard_api(app: FastAPI, settings: Settings) -> None:
 
 class RunCreate(BaseModel):
     plan: str
+    title: str | None = Field(default=None, max_length=120)
     inputs: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -77,6 +95,8 @@ class Cleanup(BaseModel):
 class Decision(BaseModel):
     decision: Literal["approved", "rejected"]
     comment: str | None = None
+    nonce: str = Field(min_length=1, description="Código de un solo uso de la aprobación (lo da GET /api/approvals)")
+    overrides: dict[str, dict[str, str]] = Field(default_factory=dict, description="Textos editados: nodo, campo")
 
 
 def create_app(settings: Settings | None = None, engine: Engine | None = None, *, serve_ui: bool = True) -> FastAPI:
@@ -118,9 +138,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
         counts: dict[str, int] = {}
         for run in roots:
             counts[run["status"]] = counts.get(run["status"], 0) + 1
-        midnight = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
         return {"runs": counts, "pending_approvals": len(store.list_approvals("pending")),
-                "cost_today_usd": round(store.cost_since(midnight), 6),
+                "cost_today_usd": round(store.cost_since(local_midnight()), 6),
+                "daily_budget_usd": settings.daily_budget_usd, "run_budget_usd": settings.run_budget_usd,
                 "interrupted_nodes": sum(
                     1 for r in roots for n in store.all_nodes(r["id"]).values() if n["status"] == "interrupted")}
 
@@ -151,6 +171,27 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
             issues = validate_plan(parsed, settings.root, settings).issues
         return {"ok": not any(i.severity == "error" for i in issues), "issues": [i.__dict__ for i in issues]}
 
+    @app.put("/api/plans/{name}")
+    async def save_plan(name: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Guarda un plan editado (o nuevo) en plans/. Solo se escribe si es válido: nunca queda un plan roto."""
+        if not PLAN_NAME.match(name) or body.get("name") != name:
+            raise HTTPException(422, "el nombre del plan debe coincidir con la URL: minúsculas, dígitos, - y _")
+        parsed, issues = parse_plan(body)
+        if parsed is not None:
+            issues = validate_plan(parsed, settings.root, settings).issues
+        errors = [i for i in issues if i.severity == "error"]
+        if errors:
+            raise HTTPException(422, {"message": f"el plan tiene {len(errors)} error(es)",
+                                      "issues": [i.__dict__ for i in issues]})
+        target = find_plan_file(settings.root, name) or (settings.root / "plans" / f"{name}.json")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # solo lo que se aparta de los valores por defecto: el fichero queda corto y legible
+        data = {"schema_version": 1,
+                **parsed.model_dump(by_alias=True, mode="json", exclude_defaults=True)}  # type: ignore[union-attr]
+        target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        return {"ok": True, "path": str(target.relative_to(settings.root)),
+                "issues": [i.__dict__ for i in issues]}
+
     # --- runs ------------------------------------------------------------------------------
     @app.get("/api/runs")
     async def runs(status: str | None = None, plan: str | None = None, q: str | None = None,
@@ -162,7 +203,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
                 continue
             if plan and run["plan_name"] != plan:
                 continue
-            if q and q.lower() not in (run["id"] + json.dumps(run["inputs"], ensure_ascii=False)).lower():
+            haystack = run["id"] + (run.get("title") or "") + json.dumps(run["inputs"], ensure_ascii=False)
+            if q and q.lower() not in haystack.lower():
                 continue
             result.append(views.run_summary(eng(), run))
         return result
@@ -170,7 +212,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
     @app.post("/api/runs", status_code=201)
     async def create_run(body: RunCreate) -> dict[str, Any]:
         try:
-            run_id = eng().create_run_from_name(body.plan, body.inputs)
+            run_id = eng().create_run_from_name(body.plan, body.inputs, title=body.title)
         except PlanInvalid as exc:
             raise HTTPException(422, {"message": str(exc), "issues": [i.__dict__ for i in exc.issues]}) from exc
         wake()
@@ -279,6 +321,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
         for row in rows:
             run = store.get_run(row["run_id"])
             row["plan_name"] = run["plan_name"] if run else ""
+            row["run_title"] = run.get("title") if run else None
             row["inputs"] = run["inputs"] if run else {}
         return rows
 
@@ -288,14 +331,21 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
         if row is None:
             raise HTTPException(404, "no existe la aprobación")
         run = eng().store.get_run(row["run_id"])
-        return {**row, "plan_name": run["plan_name"] if run else "", "inputs": run["inputs"] if run else {}}
+        return {**row, "plan_name": run["plan_name"] if run else "", "run_title": run.get("title") if run else None,
+                "inputs": run["inputs"] if run else {}}
 
     @app.post("/api/approvals/{approval_id}/decision")
     async def decide(approval_id: int, body: Decision) -> dict[str, Any]:
         store = eng().store
-        if store.get_approval(approval_id) is None:
+        approval = store.get_approval(approval_id)
+        if approval is None:
             raise HTTPException(404, "no existe la aprobación")
-        if not store.decide_approval(approval_id, body.decision, comment=body.comment, decided_by=getpass.getuser()):
+        # el nonce solo lo conoce quien puede leer la API: una página ajena no puede aprobar a ciegas
+        if not secrets.compare_digest(body.nonce, approval.get("nonce") or ""):
+            raise HTTPException(403, "código de aprobación no válido")
+        overrides = _check_overrides(eng(), approval, body.overrides) if body.decision == "approved" else {}
+        if not store.decide_approval(approval_id, body.decision, comment=body.comment, decided_by=getpass.getuser(),
+                                     overrides=overrides):
             raise HTTPException(409, "la aprobación ya no está pendiente")
         wake()
         return {"ok": True}

@@ -82,6 +82,7 @@ convierte a texto. Un campo numérico o booleano admite una referencia `${...}` 
 todos los caminos que llegan a él. El efecto lo fija el tipo de nodo, nunca el plan.
 - **Bucles acotados:** todo ciclo debe pasar por un nodo con `max_attempts` o por el destino del evento \
 `changes_requested` de un `ia_agent_validator` (que se limita con su `max_retries`).
+- **Caminos alternativos:** si dos caminos excluyentes (p. ej. `scan.clean` y `scan.secrets_detected → triage`) confluyen en un mismo nodo, ponle `"join": "any"`: con `all` esperaría a ambos y no arrancaría nunca. El validador avisa de los casos evidentes (`join_all_alternative_paths`).
 - **Referencias:** solo a nodos anteriores en el grafo y a campos de salida que existan.
 - **Eventos:** las aristas solo pueden salir de eventos que el tipo declara; los eventos de un `route` deben estar \
 todos conectados.

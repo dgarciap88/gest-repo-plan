@@ -46,6 +46,8 @@ class NodeType:
     idle_timeout_s: ClassVar[int | None] = None
     # True si las salidas no están fijadas por el tipo (p. ej. scripts): no se comprueban
     dynamic_outputs: ClassVar[bool] = False
+    # Campos de texto que quien aprueba puede editar antes de aprobar (el título de un PR, un comentario...)
+    editable_fields: ClassVar[tuple[str, ...]] = ()
     # Evento que devuelve el trabajo a un nodo anterior y cuyo número de rondas acota el bucle
     loop_event: ClassVar[str | None] = None
 

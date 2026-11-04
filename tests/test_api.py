@@ -16,6 +16,12 @@ def local_client(app, **kwargs):
     return TestClient(app, base_url="http://127.0.0.1:8765", headers={"X-Gestplan": "1"}, **kwargs)
 
 
+def decide(client, approval_id, decision="approved", **extra):
+    """Decide como la UI: lee el nonce de la aprobación y lo devuelve junto a la decisión."""
+    nonce = client.get(f"/api/approvals/{approval_id}").json()["nonce"]
+    return client.post(f"/api/approvals/{approval_id}/decision", json={"decision": decision, "nonce": nonce, **extra})
+
+
 def wait_for(client, url, predicate, timeout=15):
     deadline = time.time() + timeout
     data = None
@@ -72,9 +78,9 @@ def test_ciclo_completo_por_la_api(client):
     approval_id = approvals[0]["id"]
     assert client.get(f"/api/approvals/{approval_id}").json()["covers"] == ["push", "pr"]
 
-    decision = client.post(f"/api/approvals/{approval_id}/decision", json={"decision": "approved", "comment": "ok"})
+    decision = decide(client, approval_id, comment="ok")
     assert decision.status_code == 200
-    assert client.post(f"/api/approvals/{approval_id}/decision", json={"decision": "rejected"}).status_code == 409
+    assert decide(client, approval_id, "rejected").status_code == 409
 
     done = wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "succeeded")
     assert done["nodes"]["pr"]["status"] == "succeeded"
@@ -111,7 +117,7 @@ def test_el_ultimo_estado_del_run_se_resume_en_una_frase(client):
     last = done["run"]["last"]
     assert last["text"] == "Esperando aprobación en approval" and last["level"] == "warn" and last["at"]
     approval_id = client.get("/api/approvals").json()[0]["id"]
-    client.post(f"/api/approvals/{approval_id}/decision", json={"decision": "approved"})
+    decide(client, approval_id)
     ok = wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "succeeded")
     assert ok["run"]["last"] == {**ok["run"]["last"], "text": "Terminado correctamente", "level": "good"}
     assert client.get("/api/runs").json()[0]["last"]["text"] == "Terminado correctamente"
@@ -128,7 +134,7 @@ def test_limpiar_runs_antiguos(client, tmp_path):
     done = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
     wait_for(client, f"/api/runs/{done}", lambda d: d["run"]["status"] == "waiting")
     approval_id = client.get("/api/approvals").json()[0]["id"]
-    client.post(f"/api/approvals/{approval_id}/decision", json={"decision": "approved"})
+    decide(client, approval_id)
     wait_for(client, f"/api/runs/{done}", lambda d: d["run"]["status"] == "succeeded")
     waiting = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
     wait_for(client, f"/api/runs/{waiting}", lambda d: d["run"]["status"] == "waiting")
@@ -258,3 +264,104 @@ def test_token_de_api_opcional(tmp_path):
 
 def test_dev_outcome_helper_sigue_valido():
     assert dev_outcome().event == "done"
+
+
+def test_los_runs_pueden_llevar_un_titulo(client):
+    titled = client.post("/api/runs", json={"plan": "flow", "title": "  KAN-2 · documentación  "}).json()["id"]
+    plain = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
+    wait_for(client, f"/api/runs/{titled}", lambda d: d["run"]["status"] == "waiting")
+    wait_for(client, f"/api/runs/{plain}", lambda d: d["run"]["status"] == "waiting")
+    detail = client.get(f"/api/runs/{titled}").json()["run"]
+    assert detail["title"] == "KAN-2 · documentación" and client.get(f"/api/runs/{plain}").json()["run"]["title"] is None
+    found = client.get("/api/runs", params={"q": "documentación"}).json()  # el título es buscable
+    assert [r["id"] for r in found] == [titled]
+    approvals = {a["run_id"]: a for a in client.get("/api/approvals").json()}
+    assert approvals[titled]["run_title"] == "KAN-2 · documentación"
+    assert client.post("/api/runs", json={"plan": "flow", "title": "x" * 121}).status_code == 422
+
+
+def test_la_decision_exige_el_nonce_de_la_aprobacion(client):
+    run_id = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
+    wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "waiting")
+    approval_id = client.get("/api/approvals").json()[0]["id"]
+    url = f"/api/approvals/{approval_id}/decision"
+    assert client.post(url, json={"decision": "approved"}).status_code == 422  # sin nonce
+    assert client.post(url, json={"decision": "approved", "nonce": "inventado"}).status_code == 403
+    assert client.get(f"/api/approvals/{approval_id}").json()["status"] == "pending"
+    assert decide(client, approval_id).status_code == 200
+
+
+def test_quien_aprueba_puede_editar_el_titulo_y_el_cuerpo_del_pr(tmp_path):
+    from gestplan.executors.base import Outcome
+    from tests.helpers import Scripted
+
+    (tmp_path / "plans").mkdir()
+    (tmp_path / "plans" / "flow.json").write_text(json.dumps(flow_plan()), encoding="utf-8")
+    seen = {}
+    executors = standard_executors()
+
+    def create_pr(ctx):
+        seen.update(ctx.config)
+        return Outcome("ok", {"pr_number": 1, "pr_url": "u"})
+
+    executors["git.create_pr"] = Scripted("git.create_pr", create_pr)
+    with local_client(create_app(engine=make_engine(tmp_path, executors))) as client:
+        run_id = client.post("/api/runs", json={"plan": "flow"}).json()["id"]
+        wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "waiting")
+        approval = client.get("/api/approvals").json()[0]
+        editable = approval["previews"]["pr"]["editable"]
+        assert set(editable) == {"title", "body"} and "editable" not in approval["previews"]["push"]
+
+        bad_field = decide(client, approval["id"], overrides={"pr": {"base_branch": "otra"}})
+        assert bad_field.status_code == 422  # solo los campos editables
+        assert decide(client, approval["id"], overrides={"ws": {"title": "x"}}).status_code == 422  # nodo no cubierto
+        assert client.get(f"/api/approvals/{approval['id']}").json()["status"] == "pending"
+
+        edited = {"pr": {"title": "[SBX-9] Título corregido por la persona", "body": "Cuerpo corregido a mano"}}
+        assert decide(client, approval["id"], overrides=edited).status_code == 200
+        wait_for(client, f"/api/runs/{run_id}", lambda d: d["run"]["status"] == "succeeded")
+    assert seen["title"] == "[SBX-9] Título corregido por la persona" and seen["body"] == "Cuerpo corregido a mano"
+    assert seen["base_branch"] == "main"  # lo demás no cambia
+
+
+def test_guardar_un_plan_editado_solo_si_es_valido(client, tmp_path):
+    original = client.get("/api/plans/flow").json()["plan"]
+    path = tmp_path / "plans" / "flow.json"
+    edited = {**original, "description": "Descripción editada desde la interfaz"}
+    saved = client.put("/api/plans/flow", json=edited)
+    assert saved.status_code == 200 and saved.json()["path"].replace("\\", "/") == "plans/flow.json"
+    assert json.loads(path.read_text(encoding="utf-8"))["description"] == "Descripción editada desde la interfaz"
+    assert client.get("/api/plans/flow").json()["valid"] is True  # sigue siendo un plan cargable
+
+    broken = json.loads(json.dumps(edited))
+    broken["nodes"]["approval"]["config"]["approves"] = ["pr"]  # push queda sin cubrir
+    before = path.read_text(encoding="utf-8")
+    rejected = client.put("/api/plans/flow", json=broken)
+    assert rejected.status_code == 422
+    assert any(i["code"] == "missing_approval" for i in rejected.json()["detail"]["issues"])
+    assert path.read_text(encoding="utf-8") == before  # nunca se escribe un plan inválido
+
+    assert client.put("/api/plans/otro-nombre", json=edited).status_code == 422  # el nombre no coincide
+    assert client.put("/api/plans/Mal Nombre", json={**edited, "name": "Mal Nombre"}).status_code == 422
+
+
+def test_crear_un_plan_nuevo(client, tmp_path):
+    new = {"name": "nuevo-plan", "description": "creado en el editor",
+           "nodes": {"cmd": {"type": "run_command", "config": {"workspace": "w", "command": ["python", "-V"]}}},
+           "edges": []}
+    assert client.put("/api/plans/nuevo-plan", json=new).status_code == 200
+    assert (tmp_path / "plans" / "nuevo-plan.json").is_file()
+    assert "nuevo-plan" in [p["name"] for p in client.get("/api/plans").json()]
+    created = client.get("/api/plans/nuevo-plan").json()
+    assert created["valid"] and "cmd" in created["graph"]["nodes"]
+
+
+def test_el_plan_guardado_no_arrastra_valores_por_defecto(client, tmp_path):
+    new = {"name": "corto", "nodes": {"cmd": {"type": "run_command", "join": "all",
+                                              "config": {"workspace": "w", "command": ["python", "-V"]}}},
+           "edges": [], "layout": {"cmd": {"x": 0, "y": 0}}}
+    assert client.put("/api/plans/corto", json=new).status_code == 200
+    written = json.loads((tmp_path / "plans" / "corto.json").read_text(encoding="utf-8"))
+    assert written["schema_version"] == 1 and list(written)[0] == "schema_version"
+    assert written["nodes"]["cmd"] == {"type": "run_command", "config": {"workspace": "w", "command": ["python", "-V"]}}
+    assert "settings" not in written and "inputs" not in written and "edges" not in written

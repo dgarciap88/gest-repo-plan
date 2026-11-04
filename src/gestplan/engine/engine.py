@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from gestplan.db import Store
+from gestplan.db import Store, local_midnight
 from gestplan.engine.http import HttpClient, RealHttp
 from gestplan.engine.runner import ProcessRunner, RealRunner, register_secrets
 from gestplan.executors import default_executors
@@ -77,7 +77,8 @@ class Engine:
     # ------------------------------------------------------------------ creación de runs -----
     def create_run(self, plan: Plan, inputs: dict[str, Any], *, parent_run_id: str | None = None,
                    parent_node_id: str | None = None, parent_index: int | None = None,
-                   idempotency_key: str | None = None, start_limit: int = 1000) -> str:
+                   idempotency_key: str | None = None, start_limit: int = 1000,
+                   title: str | None = None) -> str:
         values, issues = resolve_inputs(plan, inputs)
         if any(i.severity == "error" for i in issues):
             raise PlanInvalid(issues)
@@ -88,7 +89,7 @@ class Engine:
         self.store.create_run(run_id, plan.name, plan.model_dump(by_alias=True, mode="json"), values,
                               parent_run_id=parent_run_id, parent_node_id=parent_node_id,
                               parent_index=parent_index, idempotency_key=idempotency_key,
-                              start_limit=start_limit)
+                              start_limit=start_limit, title=(title or "").strip() or None)
         self.store.init_nodes(run_id, list(plan.nodes))
         return run_id
 
@@ -176,10 +177,13 @@ class Engine:
             return {"kind": "error", "message": f"configuración no válida: {exc.errors()[0]['msg']}"}
         attempt = self.store.get_node(run["id"], node_id)["attempts"] + 1
         try:
-            return await executor.preview(self._exec_context(run, plan, node_id, attempt, config)) or {
+            preview = await executor.preview(self._exec_context(run, plan, node_id, attempt, config)) or {
                 "kind": "none", "message": "sin vista previa"}
         except Exception as exc:  # noqa: BLE001 - la vista previa nunca debe romper el run
             return {"kind": "error", "message": f"{type(exc).__name__}: {exc}"}
+        node_type = get_node_type(plan.nodes[node_id].type)
+        editable = {f: str(config[f]) for f in (node_type.editable_fields if node_type else ()) if f in config}
+        return {**preview, "editable": editable} if editable else preview
 
     # ------------------------------------------------------------------ operación -----------
     def recover(self) -> int:
@@ -275,6 +279,21 @@ class Engine:
             ids.extend(self._family(child["id"]))
         return ids
 
+    # ------------------------------------------------------------------ presupuesto ---------
+    def budget_exhausted(self, run: dict) -> str | None:
+        """Motivo por el que no se debe lanzar otra invocación de IA (presupuesto del run o del día), o None."""
+        family = self._family(self._root_of(run["id"]))
+        spent = sum(self.store.total_cost(r) for r in family)
+        plan_cap = (self._state(run).plan.settings.max_cost_usd or 0.0)
+        caps = [c for c in (self.settings.run_budget_usd, plan_cap) if c]
+        if caps and spent >= min(caps):
+            return f"se alcanzó el presupuesto del run: {spent:.4f} USD de {min(caps):.4f} USD"
+        daily = self.settings.daily_budget_usd
+        today = self.store.cost_since(local_midnight())
+        if daily and today >= daily:
+            return f"se alcanzó el presupuesto diario: {today:.4f} USD de {daily:.4f} USD"
+        return None
+
     # ------------------------------------------------------------------ limpieza -----------
     def cleanup_candidates(self, older_than_days: int = 0,
                            statuses: tuple[str, ...] = TERMINAL_RUN) -> list[dict]:
@@ -290,7 +309,8 @@ class Engine:
             family = self._family(run["id"])
             if any((self.store.get_run(r) or {}).get("status") not in TERMINAL_RUN or r in pending for r in family):
                 continue
-            found.append({"id": run["id"], "plan_name": run["plan_name"], "status": run["status"],
+            found.append({"id": run["id"], "title": run.get("title"), "plan_name": run["plan_name"],
+                          "status": run["status"],
                           "finished_at": run["finished_at"], "family": family})
         return found
 
@@ -484,6 +504,10 @@ class Engine:
             detail = "; ".join(f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()[:3])
             self._finish(run, state, node_id, Outcome("failed", error=f"configuración no válida: {detail}"))
             return
+        node_type = get_node_type(spec.type)
+        for name, value in self.store.approval_overrides(run_id, node_id).items():
+            if node_type and name in node_type.editable_fields:  # lo que quien aprobó editó es lo que se publica
+                config[name] = value
         self.store._update("node_attempts", "id=?", (attempt_id,), resolved_config=config)
         ctx = self._exec_context(run, state.plan, node_id, attempt, config)
         timeout = self.node_timeout(run, node_id)
@@ -493,6 +517,8 @@ class Engine:
     async def _node_task(self, executor: NodeExecutor, ctx: ExecContext, node_type: str,
                          timeout: float | None) -> Outcome:
         declared = {e.name for e in (get_node_type(node_type).events if get_node_type(node_type) else ())}
+        if node_type in AGENT_TYPES and (reason := self.budget_exhausted(ctx.run)):
+            return Outcome("budget_exceeded", error=reason)  # antes de gastar más: no se lanza el agente
         async with self._sem:
             try:
                 if node_type in AGENT_TYPES:

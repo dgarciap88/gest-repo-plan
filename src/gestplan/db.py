@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Cambios posteriores al esquema inicial (versión 1); se aplican en orden a las bases existentes.
+MIGRATIONS: dict[int, tuple[str, ...]] = {
+    2: (
+        "ALTER TABLE runs ADD COLUMN title TEXT",
+        "ALTER TABLE approvals ADD COLUMN nonce TEXT",
+        "ALTER TABLE approvals ADD COLUMN overrides TEXT",
+    ),
+}
 
 SCHEMA = """
 CREATE TABLE runs (
@@ -126,12 +136,18 @@ RUN_TABLES = ("node_states", "node_attempts", "approvals", "transitions", "invoc
 JSON_COLUMNS = {
     "runs": {"plan_snapshot", "inputs"},
     "node_attempts": {"resolved_config", "outputs"},
-    "approvals": {"covers", "previews"},
+    "approvals": {"covers", "previews", "overrides"},
     "invocations": {"argv", "result_parsed", "validation_errors", "sha256"},
     "executions": {"argv"},
 }
 
 Row = dict[str, Any]
+
+
+def local_midnight() -> str:
+    """Inicio del día natural local, en el mismo formato que los instantes guardados (UTC)."""
+    start = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.astimezone(UTC).isoformat(timespec="seconds")
 
 
 def utcnow() -> str:
@@ -160,8 +176,13 @@ class Store:
         if version >= SCHEMA_VERSION:
             return
         self.conn.execute("BEGIN")
-        for statement in filter(None, (s.strip() for s in SCHEMA.split(";"))):
-            self.conn.execute(statement)
+        if version == 0:  # base nueva: esquema inicial y después todas las migraciones
+            for statement in filter(None, (s.strip() for s in SCHEMA.split(";"))):
+                self.conn.execute(statement)
+            version = 1
+        for target in range(version + 1, SCHEMA_VERSION + 1):
+            for statement in MIGRATIONS[target]:
+                self.conn.execute(statement)
         self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         self.conn.execute("COMMIT")
 
@@ -204,8 +225,8 @@ class Store:
     def create_run(self, run_id: str, plan_name: str, snapshot: dict, inputs: dict, *,
                    status: str = "queued", parent_run_id: str | None = None,
                    parent_node_id: str | None = None, parent_index: int | None = None,
-                   idempotency_key: str | None = None, start_limit: int = 1000) -> None:
-        self._insert("runs", id=run_id, plan_name=plan_name, plan_snapshot=snapshot, inputs=inputs,
+                   idempotency_key: str | None = None, start_limit: int = 1000, title: str | None = None) -> None:
+        self._insert("runs", id=run_id, plan_name=plan_name, plan_snapshot=snapshot, inputs=inputs, title=title,
                      status=status, parent_run_id=parent_run_id, parent_node_id=parent_node_id,
                      parent_index=parent_index, idempotency_key=idempotency_key,
                      start_limit=start_limit, created_at=self.clock())
@@ -353,7 +374,7 @@ class Store:
                         previews: dict, message: str = "") -> int:
         approval_id = self._insert("approvals", run_id=run_id, node_id=node_id, attempt=attempt,
                                    status="pending", covers=covers, previews=previews, message=message,
-                                   created_at=self.clock())
+                                   nonce=secrets.token_urlsafe(16), created_at=self.clock())
         self.transition(run_id, node_id, to_status="approval_requested", reason=str(approval_id))
         return approval_id
 
@@ -371,11 +392,15 @@ class Store:
         return self._many("approvals", "SELECT * FROM approvals ORDER BY id")
 
     def decide_approval(self, approval_id: int, status: str, *, comment: str | None = None,
-                        decided_by: str | None = None) -> bool:
-        """Decide una aprobación pendiente. Devuelve False si ya no estaba pendiente."""
+                        decided_by: str | None = None, overrides: dict | None = None) -> bool:
+        """Decide una aprobación pendiente. Devuelve False si ya no estaba pendiente.
+
+        `overrides` ({nodo: {campo: valor}}) son los textos que quien aprueba ha editado; solo se guardan al aprobar.
+        """
+        stored = self._encode(overrides) if overrides and status == "approved" else None
         cursor = self.conn.execute(
-            "UPDATE approvals SET status=?, comment=?, decided_by=?, decided_at=? WHERE id=? AND status='pending'",
-            (status, comment, decided_by, self.clock(), approval_id))
+            "UPDATE approvals SET status=?, comment=?, decided_by=?, decided_at=?, overrides=? "
+            "WHERE id=? AND status='pending'", (status, comment, decided_by, self.clock(), stored, approval_id))
         if cursor.rowcount != 1:
             return False
         approval = self.get_approval(approval_id)
@@ -383,6 +408,15 @@ class Store:
             self.transition(approval["run_id"], approval["node_id"], to_status=f"approval_{status}",
                             reason=str(approval_id))
         return True
+
+    def approval_overrides(self, run_id: str, node_id: str) -> dict[str, Any]:
+        """Campos editados al aprobar para un nodo (de la aprobación aceptada más reciente que lo cubre)."""
+        rows = self._many("approvals", "SELECT * FROM approvals WHERE run_id=? AND status='approved' ORDER BY id DESC",
+                          (run_id,))
+        for row in rows:
+            if node_id in row["covers"]:
+                return (row.get("overrides") or {}).get(node_id, {})
+        return {}
 
     def invalidate_approvals(self, run_id: str, node_id: str) -> None:
         self.conn.execute(

@@ -11,6 +11,8 @@ from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
 
 async def _gh_json(ctx: ExecContext, *args: str) -> Any:
     result = await ctx.process(["gh", *args], cwd=ctx.config["workspace"], timeout_s=60, kind="gh")
+    if args[:2] == ("pr", "checks") and "no checks reported" in result.combined.lower():
+        return []  # un repositorio sin CI no es un error: simplemente no hay checks
     if not result.ok and not (args[:2] == ("pr", "checks") and result.stdout.strip()):
         # 'gh pr checks' devuelve código 8 mientras haya checks pendientes y 1 si alguno falla, pero imprime JSON
         raise RuntimeError(f"gh {' '.join(args[:2])} falló: {result.combined[-300:]}")

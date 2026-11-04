@@ -126,7 +126,8 @@ class LaunchPlansExec(NodeExecutor):
                 child_id = ctx.engine.create_run_from_name(
                     ctx.config["plan"], {k: str(v) if not isinstance(v, str) else v for k, v in inputs.items()},
                     parent_run_id=ctx.run_id, parent_node_id=ctx.node_id, parent_index=index,
-                    idempotency_key=key, start_limit=int(ctx.config.get("max_parallel", 2)))
+                    idempotency_key=key, start_limit=int(ctx.config.get("max_parallel", 2)),
+                    title=f"{ctx.run['title']} · {index + 1}" if ctx.run.get("title") else None)
             except Exception as exc:  # noqa: BLE001
                 return Outcome("failed", error=f"no se pudo lanzar el plan hijo #{index}: {exc}")
             run_ids.append(child_id)

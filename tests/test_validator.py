@@ -236,3 +236,20 @@ def test_plan_hijo_inexistente(example_data, root):
 def test_avisos_de_eventos_sin_conectar(example_data, root):
     warnings = codes(run(example_data, root), "warning")
     assert "unconnected_failure_event" in warnings
+
+
+def alternative_paths_plan(join):
+    return {"name": "alt", "nodes": {
+        "scan": {"type": "secret_scan", "config": {"workspace": "w"}},
+        "triage": {"type": "secret_triage", "config": {"workspace": "w", "findings": "${nodes.scan.outputs.findings}"}},
+        "commit": {"type": "git.commit", "join": join, "config": {"workspace": "w", "subject": "Asunto de prueba largo"}}},
+        "edges": [{"from": "scan.clean", "to": "commit"}, {"from": "scan.secrets_detected", "to": "triage"},
+                  {"from": "triage.all_false_positive", "to": "commit"}]}
+
+
+def test_aviso_si_un_join_all_une_caminos_alternativos(root):
+    warned = run(alternative_paths_plan("all"), root)
+    assert "join_all_alternative_paths" in codes(warned, "warning")
+    issue = next(i for i in warned.issues if i.code == "join_all_alternative_paths")
+    assert issue.node == "commit" and "join" in issue.hint
+    assert "join_all_alternative_paths" not in codes(run(alternative_paths_plan("any"), root), "warning")

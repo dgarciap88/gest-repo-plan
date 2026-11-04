@@ -16,7 +16,9 @@ _BUILTIN_MODULES = (
     "gestplan.nodes.jira",
     "gestplan.nodes.confluence",
     "gestplan.nodes.github",
+    "gestplan.nodes.github_extra",
     "gestplan.nodes.security",
+    "gestplan.nodes.secret_triage",
 )
 
 

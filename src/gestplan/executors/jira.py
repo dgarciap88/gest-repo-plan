@@ -246,3 +246,52 @@ class JiraCreateSubtaskExec(JiraBase):
             keys.append((await self.json(ctx, "POST", "issue", json_body={"fields": fields}))["key"])
             created += 1
         return Outcome("ok", {"keys": keys, "created": created})
+
+
+class JiraCreateIssueExec(JiraBase):
+    type = "jira.create_issue"
+
+    _ALIASES = ({"task", "tarea"}, {"bug", "error"}, {"story", "historia"}, {"epic", "épica", "epica"})
+
+    async def preview(self, ctx: ExecContext) -> dict[str, Any] | None:
+        cfg = ctx.config
+        extra = f"\n\n{cfg['description']}" if cfg.get("description") else ""
+        return {"kind": "markdown", "title": f"Nuevo ticket en {cfg['project']}",
+                "text": f"**{cfg['summary']}** ({cfg['issue_type']}){extra}"}
+
+    async def run(self, ctx: ExecContext) -> Outcome:
+        try:
+            return await self.execute(ctx, str(ctx.config["project"]).strip())
+        except JiraError as exc:
+            return Outcome(exc.event, error=str(exc))
+
+    def _pick_type(self, types: list[dict[str, Any]], wanted: str) -> dict[str, Any] | None:
+        name = wanted.strip().lower()
+        names = next((group for group in self._ALIASES if name in group), {name})  # Task = Tarea, Bug = Error...
+        return next((t for t in types if not t.get("subtask") and t.get("name", "").lower() in names), None)
+
+    async def execute(self, ctx: ExecContext, project: str) -> Outcome:
+        cfg = ctx.config
+        meta = await self.json(ctx, "GET", f"project/{quote(project)}")
+        chosen = self._pick_type(meta.get("issueTypes", []), str(cfg["issue_type"]))
+        if chosen is None:
+            available = ", ".join(t["name"] for t in meta.get("issueTypes", []) if not t.get("subtask"))
+            return Outcome("issue_type_not_found",
+                           error=f"el proyecto {project} no tiene el tipo '{cfg['issue_type']}' (hay: {available})")
+        label = f"gp-{ctx.run_id}-{ctx.node_id}".replace("_", "-")
+        jql = f'project = "{project}" AND labels = "{label}"'
+        found = await self.json(ctx, "GET", "search/jql", query=f"?jql={quote(jql)}&fields=summary")
+        base = ctx.settings.jira_base_url
+        if found.get("issues"):
+            existing = found["issues"][0]
+            return Outcome("already_done", {"key": existing["key"], "id": existing.get("id", ""),
+                                            "url": f"{base}/browse/{existing['key']}"})
+        fields: dict[str, Any] = {"project": {"key": project}, "issuetype": {"id": chosen["id"]},
+                                  "summary": cfg["summary"], "labels": [*(cfg.get("labels") or []), label]}
+        if cfg.get("description"):
+            fields["description"] = markdown_to_adf(cfg["description"])
+        if cfg.get("parent_key"):
+            fields["parent"] = {"key": cfg["parent_key"]}
+        created = await self.json(ctx, "POST", "issue", json_body={"fields": fields})
+        return Outcome("ok", {"key": created["key"], "id": str(created.get("id", "")),
+                              "url": f"{base}/browse/{created['key']}"})

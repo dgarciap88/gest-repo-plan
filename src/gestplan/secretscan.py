@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 ALLOW_MARKER = "gestplan:allow-secret"
 MAX_LINE = 2000
@@ -103,3 +103,46 @@ def scan_text(path: str, text: str) -> list[Finding]:
     for number, line in enumerate(text.splitlines(), 1):
         findings.extend(scan_line(path, number, line))
     return findings
+
+
+_BASE64_LINE = re.compile(r"^\s*[A-Za-z0-9+/=]{40,}\s*$")
+
+
+def mask_line(line: str) -> str:
+    """Sustituye por su versión enmascarada todo lo que parezca un secreto (para enseñarlo a una IA)."""
+    if _BASE64_LINE.match(line):  # cuerpo de una clave privada u otro blob
+        return "***"
+    for _kind, pattern in _PATTERNS:
+
+        def replace(match: re.Match[str], pattern: re.Pattern[str] = pattern) -> str:
+            value = match.group(1) if pattern.groups else match.group(0)
+            if pattern.groups and _PLACEHOLDER.match(value):
+                return match.group(0)
+            return match.group(0).replace(value, mask(value))
+
+        line = pattern.sub(replace, line)
+
+    def replace_quoted(match: re.Match[str]) -> str:
+        value = match.group(1)
+        if len(set(value)) > 12 and entropy(value) > 4.3 and not value.isalpha():
+            return match.group(0).replace(value, mask(value))
+        return match.group(0)
+
+    return _QUOTED.sub(replace_quoted, line)[:300]
+
+
+def masked_context(workspace: Path, file: str, line: int, radius: int = 2) -> str:
+    """Unas pocas líneas alrededor de un hallazgo, ya enmascaradas. Nunca devuelve el fichero entero."""
+    if line <= 0:
+        return "(hallazgo sobre el nombre del fichero: no se envía su contenido)"
+    root = workspace.resolve()
+    path = (root / file).resolve()
+    if root not in path.parents:
+        return "(ruta fuera del workspace: no se envía contenido)"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return "(fichero no legible o binario: no se envía contenido)"
+    first, last = max(1, line - radius), min(len(lines), line + radius)
+    return "\n".join(f"{number}{'>' if number == line else ' '} {mask_line(lines[number - 1])}"
+                     for number in range(first, last + 1))

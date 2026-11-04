@@ -7,6 +7,7 @@ import { Layout } from './components/Layout'
 import { Approvals } from './pages/Approvals'
 import { CatalogPage } from './pages/Catalog'
 import { Dashboard } from './pages/Dashboard'
+import { PlanEditor } from './pages/PlanEditor'
 import { PlanPage } from './pages/PlanPage'
 import { Plans } from './pages/Plans'
 import { RunPage } from './pages/RunPage'
@@ -24,6 +25,8 @@ const router = createHashRouter([
       { path: '/runs/:id', element: <RunPage /> },
       { path: '/approvals', element: <Approvals /> },
       { path: '/plans', element: <Plans /> },
+      { path: '/plans/new', element: <PlanEditor /> },
+      { path: '/plans/:name/edit', element: <PlanEditor /> },
       { path: '/plans/:name', element: <PlanPage /> },
       { path: '/catalog', element: <CatalogPage /> },
     ],

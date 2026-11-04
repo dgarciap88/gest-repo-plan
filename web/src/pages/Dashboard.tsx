@@ -32,7 +32,8 @@ function RunRow({ run, depth = 0 }: { run: RunSummary; depth?: number }) {
             {open ? '▾' : '▸'}
           </button>
         )}
-        <Link to={`/runs/${run.id}`}>{run.id}</Link>
+        <Link to={`/runs/${run.id}`}>{run.title ? <strong>{run.title}</strong> : run.id}</Link>
+        {run.title && <div className="dim small">{run.id}</div>}
       </td>
       <td>{run.plan_name}</td>
       <td className="dim small">{fmtInputs(run.inputs)}</td>
@@ -94,7 +95,9 @@ export function Dashboard() {
         </div>
         <div className="stat">
           <span className="num">{fmtCost(stats.data?.cost_today_usd ?? 0)}</span>
-          <span>Coste de hoy</span>
+          <span>
+            Coste de hoy{stats.data?.daily_budget_usd ? ` (límite ${fmtCost(stats.data.daily_budget_usd)})` : ''}
+          </span>
         </div>
       </section>
 
@@ -105,7 +108,7 @@ export function Dashboard() {
             {attention.map((r) => (
               <li key={r.id}>
                 <StatusBadge status={r.status === 'failed' ? 'failed' : 'waiting_approval'} compact />{' '}
-                <Link to={`/runs/${r.id}`}>{r.plan_name}</Link> <span className="dim small">{fmtInputs(r.inputs)}</span>
+                <Link to={`/runs/${r.id}`}>{r.title || r.plan_name}</Link> <span className="dim small">{fmtInputs(r.inputs)}</span>
                 {r.pending_approvals > 0 && <span className="chip warn">{r.pending_approvals} aprobación(es) pendiente(s)</span>}
                 {r.error && <span className="error small"> · {r.error}</span>}
               </li>
@@ -125,7 +128,7 @@ export function Dashboard() {
                 {label}
               </button>
             ))}
-            <input placeholder="Buscar por id o input…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input placeholder="Buscar por título, id o input…" value={q} onChange={(e) => setQ(e.target.value)} />
             <button className="btn small" onClick={() => setCleaning(!cleaning)} title="Borrar runs terminados">
               🧹 Limpiar…
             </button>
