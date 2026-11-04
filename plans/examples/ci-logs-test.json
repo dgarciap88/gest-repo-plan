@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "ci-logs-test",
+  "description": "Espera los checks de un PR y, si alguno falla, recoge el log de los jobs fallidos (solo lectura; prueba de wait_checks y get_failed_logs)",
+  "inputs": {
+    "repo_url": { "type": "string", "required": true, "description": "URL del repositorio" },
+    "pr": { "type": "string", "required": true, "description": "Número o URL del PR" }
+  },
+  "settings": { "language": "es", "display_inputs": ["pr"] },
+  "nodes": {
+    "ws": { "type": "prepare_workspace", "config": { "repo_url": "${inputs.repo_url}", "base_branch": "main", "new_branch": "ci-logs-${run.id}" } },
+    "checks": { "type": "github.wait_checks", "config": { "workspace": "${nodes.ws.outputs.path}", "pr": "${inputs.pr}", "max_wait_s": 600 } },
+    "logs": { "type": "github.get_failed_logs", "config": { "workspace": "${nodes.ws.outputs.path}", "pr": "${inputs.pr}", "max_chars": 3000 } },
+    "cleanup": { "type": "cleanup_workspace", "join": "any", "config": { "workspace": "${nodes.ws.outputs.path}" } }
+  },
+  "edges": [
+    { "from": "ws.ok", "to": "checks" },
+    { "from": "checks.failure", "to": "logs" },
+    { "from": "checks.success", "to": "cleanup" },
+    { "from": "logs.ok", "to": "cleanup" },
+    { "from": "logs.no_failures", "to": "cleanup" }
+  ]
+}

@@ -146,3 +146,22 @@ def test_checks_que_aun_no_se_han_registrado_no_cuentan_como_sin_ci(tmp_path):
             break
     attempt = engine.store.attempts(run_id, "n")[-1]
     assert polls["n"] == 4 and attempt["event"] == "success" and "tests" in attempt["outputs"]["summary"]
+
+
+def test_el_log_de_actions_se_limpia_antes_de_pasarlo_a_un_agente():
+    from gestplan.executors.github_extra import clean_log
+
+    raw = (
+        "tests\tFallo forzado (escenario)\t﻿2026-11-04T07:36:02.4039236Z ##[group]Run if [ -f x ]\n"
+        "tests\tFallo forzado (escenario)\t2026-11-04T07:36:02.4040950Z \x1b[36;1mexit 1\x1b[0m\n"
+        "tests\tFallo forzado (escenario)\t2026-11-04T07:36:02.5Z ##[error]Process completed with exit code 1.\n"
+        "tests\tEjecutar tests\t2026-11-04T07:36:03.1Z FAILED test_a.py::test_x - assert 1 == 2\n"
+        "linea sin formato de actions\n"
+    )
+    assert clean_log(raw) == (
+        "--- paso: Fallo forzado (escenario) ---\n"
+        "##[group]Run if [ -f x ]\nexit 1\n##[error]Process completed with exit code 1.\n"
+        "--- paso: Ejecutar tests ---\nFAILED test_a.py::test_x - assert 1 == 2\n"
+        "linea sin formato de actions"
+    )
+    assert "﻿" not in clean_log(raw) and "\x1b" not in clean_log(raw) and "2026-11" not in clean_log(raw)

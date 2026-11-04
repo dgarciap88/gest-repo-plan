@@ -12,6 +12,26 @@ _RUN_URL = re.compile(r"/actions/runs/(\d+)")
 _BLOCKED_HINTS = ("not mergeable", "required", "protected", "blocked", "conflict")
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_LOG_LINE = re.compile(r"^[^\t]*\t([^\t]*)\t﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?(.*)$")
+
+
+def clean_log(text: str) -> str:
+    """Quita lo que ensucia el log de Actions (BOM, colores ANSI, marcas de hora y el prefijo job/paso repetido)."""
+    out: list[str] = []
+    step = None
+    for raw in _ANSI.sub("", text.replace("﻿", "")).splitlines():
+        found = _LOG_LINE.match(raw)
+        if not found:
+            out.append(raw)
+            continue
+        if found.group(1) != step:
+            step = found.group(1)
+            out.append(f"--- paso: {step} ---")
+        out.append(found.group(2))
+    return "\n".join(out)
+
+
 class GithubGetFailedLogsExec(NodeExecutor):
     type = "github.get_failed_logs"
 
@@ -36,7 +56,7 @@ class GithubGetFailedLogsExec(NodeExecutor):
             if not result.ok:
                 return Outcome("failed", error=f"gh run view falló: {result.combined[-300:]}")
             runs.append({"run_id": run_id, "name": name})
-            parts.append(f"=== {name} (ejecución {run_id}) ===\n{result.stdout.strip()}")
+            parts.append(f"=== {name} (ejecución {run_id}) ===\n{clean_log(result.stdout).strip()}")
         text = "\n\n".join(parts)
         truncated = len(text) > limit
         if truncated:
