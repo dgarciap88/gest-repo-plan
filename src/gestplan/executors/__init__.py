@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from gestplan.executors.agents import IaAgentExec, IaAgentValidatorExec
 from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
-from gestplan.executors.confluence import ConfluenceCreatePageExec, ConfluenceUpdatePageExec
+from gestplan.executors.confluence import ConfluenceCreatePageExec, ConfluenceGetPageExec, ConfluenceUpdatePageExec
 from gestplan.executors.flow import (
     LaunchPlansExec,
     ManualApprovalExec,
@@ -40,7 +40,7 @@ def default_executors() -> dict[str, NodeExecutor]:
         GitCommitExec, GitPushExec, GitCreatePrExec, RouteExec, ManualApprovalExec, PythonScriptExec,
         LaunchPlansExec, WaitPlanExec, JiraGetIssueExec, JiraGetCommentsExec, JiraGetAttachmentsExec,
         JiraAssignExec, JiraCommentExec, JiraTransitionExec, JiraCreateSubtaskExec, ConfluenceCreatePageExec,
-        ConfluenceUpdatePageExec, JiraCreateIssueExec,
+        ConfluenceUpdatePageExec, ConfluenceGetPageExec, JiraCreateIssueExec,
         GithubGetPrStatusExec, GithubWaitChecksExec, GithubGetReviewCommentsExec, GithubGetWorkflowRunsExec,
         GithubGetFailedLogsExec, GithubMergePrExec, SecretScanExec, SecretTriageExec,
     )

@@ -25,6 +25,7 @@ import {
   eventsOf,
   removeEdge,
   removeNode,
+  renameNode,
   sanitize,
   upstream,
   validNodeId,
@@ -300,6 +301,19 @@ export function PlanEditor() {
                 <h3>
                   <code>{selection.id}</code> <span className="dim small">{selectedNode.type}</span>
                 </h3>
+                <button
+                  className="btn small"
+                  onClick={() => {
+                    const id = window.prompt('Nuevo id del nodo', selection.id)?.trim()
+                    if (!id || id === selection.id) return
+                    const problem = validNodeId(id, plan)
+                    if (problem) return void window.alert(problem)
+                    change(renameNode(plan, selection.id, id))
+                    setSelection({ kind: 'node', id })
+                  }}
+                >
+                  Renombrar
+                </button>
                 <button
                   className="btn bad small"
                   onClick={() => {

@@ -58,6 +58,25 @@ export function addEdge(plan: PlanJson, from: string, event: string, to: string)
   return { ...plan, edges: [...plan.edges, { from: source, to }] }
 }
 
+/** Renombra un nodo: su clave, su posición, las aristas y las referencias `nodes.<id>.` de las configuraciones. */
+export function renameNode(plan: PlanJson, from: string, to: string): PlanJson {
+  const pattern = new RegExp(String.raw`(^|[^\w])nodes\.${from}\.`, 'g')
+  const rewrite = (value: any): any => {
+    if (typeof value === 'string') return value.replace(pattern, `$1nodes.${to}.`)
+    if (Array.isArray(value)) return value.map(rewrite)
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rewrite(v)]))
+    return value
+  }
+  const rename = (key: string) => (key === from ? to : key)
+  const nodes = Object.fromEntries(Object.entries(plan.nodes).map(([id, node]) => [rename(id), { ...node, config: rewrite(node.config) }]))
+  const edges = plan.edges.map((e) => {
+    const [source, ...event] = e.from.split('.')
+    return { from: [rename(source), ...event].join('.'), to: rename(e.to) }
+  })
+  const layout = plan.layout && Object.fromEntries(Object.entries(plan.layout).map(([id, at]) => [rename(id), at]))
+  return { ...plan, nodes, edges, ...(layout ? { layout } : {}) }
+}
+
 export function removeEdge(plan: PlanJson, from: string, to: string): PlanJson {
   return { ...plan, edges: plan.edges.filter((e) => !(e.from === from && e.to === to)) }
 }

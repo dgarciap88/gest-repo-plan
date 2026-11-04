@@ -635,3 +635,20 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px;
 .row.wrap { flex-wrap: wrap; }
 .modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .modal { width: min(460px, 92vw); }
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+th.sortable:hover {
+  color: var(--accent, inherit);
+}
+
+.config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px 24px; }
+.config-field label { display: flex; flex-direction: column; gap: 3px; }
+.config-field.changed input, .config-field.changed select { border-color: var(--warn, #d9a400); }
+.config-bar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 12px 0; background: var(--bg, inherit); }
+.notice { padding: 8px 12px; border-radius: 6px; margin: 10px 0; border: 1px solid currentColor; }
+.notice.good { color: var(--good, #2e8b57); }
+.notice.warn { color: var(--warn, #b8860b); }

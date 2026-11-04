@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from gestplan.engine.engine import Engine
+from gestplan.server.lock import ServerLock
 
 log = logging.getLogger("gestplan.supervisor")
 
@@ -15,6 +16,7 @@ class Supervisor:
         self.engine = engine
         self._wake = asyncio.Event()
         self._stopped = False
+        self.lock = ServerLock(engine.settings.data_dir)
 
     def wake(self) -> None:
         """Despierta al bucle (una aprobación, una cancelación o un run nuevo)."""
@@ -25,10 +27,18 @@ class Supervisor:
         self._wake.set()
 
     async def run(self) -> None:
+        self.lock.beat(force=True)
+        try:
+            await self._loop()
+        finally:
+            self.lock.release()
+
+    async def _loop(self) -> None:
         recovered = self.engine.recover()
         if recovered:
             log.warning("%d nodo(s) interrumpido(s) por una caída anterior; se pueden reactivar", recovered)
         while not self._stopped:
+            self.lock.beat()
             progress = False
             tasks: list[asyncio.Task] = []
             for run_id in self.engine.active_roots():

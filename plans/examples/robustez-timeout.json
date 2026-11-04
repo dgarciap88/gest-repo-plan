@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "name": "robustez-timeout",
+  "description": "Como robustez pero el primer paso tiene un timeout de 4 s (debe emitir timeout y matar el proceso)",
+  "inputs": {
+    "seconds": {
+      "type": "integer",
+      "default": 20,
+      "description": "Duración del primer paso"
+    }
+  },
+  "nodes": {
+    "a": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": "${inputs.seconds}"
+        }
+      },
+      "timeout_s": 4
+    },
+    "b": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 3
+        }
+      }
+    },
+    "c": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 1
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "a.ok",
+      "to": "b"
+    },
+    {
+      "from": "b.ok",
+      "to": "c"
+    }
+  ]
+}

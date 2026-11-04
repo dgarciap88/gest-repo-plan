@@ -34,6 +34,7 @@ export function Layout() {
           </NavLink>
           <NavLink to="/plans">Planes</NavLink>
           <NavLink to="/catalog">Catálogo</NavLink>
+          <NavLink to="/config">Configuración</NavLink>
         </nav>
         {notifications && permission === 'default' && (
           <button className="btn small" onClick={() => notifications.requestPermission().then(setPermission)}>

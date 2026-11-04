@@ -92,8 +92,9 @@ class Settings:
     daily_budget_usd: float = 0.0
 
     @classmethod
-    def from_env(cls) -> Settings:
-        load_env_file(Path(os.environ.get("GP_ROOT", ".")) / ".env")
+    def from_env(cls, root: Path | None = None) -> Settings:
+        root = root or Path(os.environ.get("GP_ROOT", "."))
+        load_env_file(root / ".env")
         env = os.environ.get
         tier = os.environ.get("GP_MAX_MODEL_TIER", "standard")
         jira_base = env("JIRA_BASE_URL", "").strip().rstrip("/")
@@ -109,7 +110,7 @@ class Settings:
             max_attempts_cap=_env_int("GP_MAX_ATTEMPTS_CAP", cls.max_attempts_cap),
             allowed_models=_env_list("GP_ALLOWED_MODELS", ()),
             command_allowlist=_env_list("GP_COMMAND_ALLOWLIST", DEFAULT_COMMAND_ALLOWLIST),
-            root=Path(os.environ.get("GP_ROOT", ".")),
+            root=root,
             data_dir=Path(os.environ.get("GP_DATA_DIR", "data")),
             workspaces_dir=Path(workspaces) if workspaces else None,
             max_concurrent_nodes=_env_int("GP_MAX_CONCURRENT_NODES", cls.max_concurrent_nodes),

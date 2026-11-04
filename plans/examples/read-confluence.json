@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "read-confluence",
+  "description": "Lee una página de Confluence y la convierte a bloques JSON editables (solo lectura)",
+  "inputs": { "page_id": { "type": "string", "required": true, "description": "Id de la página" } },
+  "nodes": { "page": { "type": "confluence.get_page", "config": { "page_id": "${inputs.page_id}" } } },
+  "edges": []
+}

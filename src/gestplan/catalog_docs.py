@@ -120,6 +120,11 @@ FIELD_DOCS: dict[str, str] = {
     "TableBlock.type": "Siempre \"table\"", "TableBlock.columns": "Nombres de las columnas",
     "TableBlock.rows": "Filas: lista de listas de celdas (en el orden de `columns`), o una referencia ${...}",
     "CodeBlock.type": "Siempre \"code\"", "CodeBlock.text": "Código", "CodeBlock.language": "Lenguaje para resaltar (opcional)",
+    "MacroBlock.type": "Siempre \"macro\"", "MacroBlock.name": "Nombre de la macro de Confluence (info, note, toc, expand, status, jira...)",
+    "MacroBlock.params": "Parámetros de la macro, p. ej. {\"jqlQuery\": \"parent is not EMPTY\", \"columns\": \"key,summary\"}",
+    "MacroBlock.text": "Cuerpo de texto plano (macros como noformat o html); excluyente con `body`",
+    "MacroBlock.body": "Cuerpo con bloques (macros como info, note, panel, expand); excluyente con `text`",
+    "RawBlock.type": "Siempre \"raw\"", "RawBlock.storage": "XHTML de Confluence (storage format) que se inserta tal cual, sin escapar",
     # --- git
     "git.commit.outputs.commit_sha": "Hash del commit creado",
     "git.commit.outputs.subject": "Asunto con el que se hizo el commit",

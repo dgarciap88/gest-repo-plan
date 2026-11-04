@@ -1,0 +1,5 @@
+{"schema_version":1,"name":"triage-test","description":"Prueba de secret_scan + secret_triage con un repo local","inputs":{"repo_url":{"type":"string","required":true}},
+"nodes":{"ws":{"type":"prepare_workspace","config":{"repo_url":"${inputs.repo_url}","base_branch":"main","new_branch":"triage-test"}},
+"scan":{"type":"secret_scan","config":{"workspace":"${nodes.ws.outputs.path}","ref":"HEAD~1"}},
+"triage":{"type":"secret_triage","config":{"workspace":"${nodes.ws.outputs.path}","findings":"${nodes.scan.outputs.findings}","model_tier":"cheap","max_cost_usd":0.2}}},
+"edges":[{"from":"ws.ok","to":"scan"},{"from":"scan.secrets_detected","to":"triage"}]}

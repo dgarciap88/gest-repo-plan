@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type RunSummary, api } from '../api'
 import { CleanupPanel } from '../components/CleanupPanel'
@@ -14,6 +14,35 @@ const FILTERS: [string, string][] = [
   ['succeeded', 'Correctos'],
   ['cancelled', 'Cancelados'],
 ]
+
+type SortKey = 'run' | 'plan' | 'status' | 'progress' | 'last' | 'children' | 'duration' | 'cost' | 'created'
+
+const COLUMNS: [SortKey | null, string][] = [
+  ['run', 'Run'],
+  ['plan', 'Plan'],
+  [null, 'Inputs'],
+  ['status', 'Estado'],
+  ['progress', 'Progreso'],
+  ['last', 'Último estado'],
+  ['children', 'Hijos'],
+  ['created', 'Creado'],
+  ['duration', 'Duración'],
+  ['cost', 'Coste'],
+]
+
+const time = (value: string | null | undefined) => (value ? new Date(value).getTime() : 0)
+
+const SORT_VALUE: Record<SortKey, (r: RunSummary) => string | number> = {
+  run: (r) => (r.title || r.id).toLowerCase(),
+  plan: (r) => r.plan_name.toLowerCase(),
+  status: (r) => r.status,
+  progress: (r) => (r.progress.total ? r.progress.succeeded / r.progress.total : 0),
+  last: (r) => time(r.last.at),
+  children: (r) => r.children_count,
+  duration: (r) => (r.started_at ? (r.finished_at ? time(r.finished_at) : Date.now()) - time(r.started_at) : 0),
+  cost: (r) => r.cost_usd,
+  created: (r) => time(r.created_at),
+}
 
 function RunRow({ run, depth = 0 }: { run: RunSummary; depth?: number }) {
   const [open, setOpen] = useState(false)
@@ -56,6 +85,10 @@ function RunRow({ run, depth = 0 }: { run: RunSummary; depth?: number }) {
         </span>
       </td>
       <td>{run.children_count > 0 ? run.children_count : '—'}</td>
+      <td>
+        <div title={fmtTime(run.created_at)}>{fmtTime(run.created_at)}</div>
+        <span className="dim small">{fmtAgo(run.created_at)}</span>
+      </td>
       <td>{fmtDuration(run.started_at, run.finished_at)}</td>
       <td>{fmtCost(run.cost_usd)}</td>
     </tr>
@@ -68,10 +101,22 @@ export function Dashboard() {
   const [status, setStatus] = useState('')
   const [q, setQ] = useState('')
   const [cleaning, setCleaning] = useState(false)
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'created', dir: 'desc' })
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const runs = useQuery({ queryKey: ['runs', status, q], queryFn: () => api.runs({ status, q }), refetchInterval: 30000 })
   const attention = (runs.data ?? []).filter((r) => r.pending_approvals > 0 || r.status === 'failed')
   const counts = stats.data?.runs ?? {}
+  const sorted = useMemo(() => {
+    const value = SORT_VALUE[sort.key]
+    const factor = sort.dir === 'asc' ? 1 : -1
+    return [...(runs.data ?? [])].sort((a, b) => {
+      const x = value(a)
+      const y = value(b)
+      return (x < y ? -1 : x > y ? 1 : 0) * factor
+    })
+  }, [runs.data, sort])
+  const toggleSort = (key: SortKey) =>
+    setSort((current) => ({ key, dir: current.key === key && current.dir === 'desc' ? 'asc' : 'desc' }))
 
   return (
     <div className="page">
@@ -145,19 +190,19 @@ export function Dashboard() {
             <table>
               <thead>
                 <tr>
-                  <th>Run</th>
-                  <th>Plan</th>
-                  <th>Inputs</th>
-                  <th>Estado</th>
-                  <th>Progreso</th>
-                  <th>Último estado</th>
-                  <th>Hijos</th>
-                  <th>Duración</th>
-                  <th>Coste</th>
+                  {COLUMNS.map(([key, label]) =>
+                    key ? (
+                      <th key={key} className="sortable" onClick={() => toggleSort(key)} aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                        {label} <span className="dim">{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
+                      </th>
+                    ) : (
+                      <th key={label}>{label}</th>
+                    ),
+                  )}
                 </tr>
               </thead>
               <tbody>
-                {runs.data!.map((run) => (
+                {sorted.map((run) => (
                   <RunRow key={run.id} run={run} />
                 ))}
               </tbody>

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import getpass
 import json
+import os
 import re
 import secrets
 from contextlib import asynccontextmanager, suppress
@@ -16,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from gestplan import config_admin
 from gestplan.catalog import render_markdown
 from gestplan.db import Store, local_midnight
 from gestplan.engine.engine import Engine, PlanInvalid
@@ -86,6 +88,11 @@ class RunCreate(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
 
 
+class ConfigUpdate(BaseModel):
+    values: dict[str, str | None] = Field(
+        description="Nombre → valor nuevo. '' o null borra el parámetro (en un secreto, '' lo deja como está)")
+
+
 class Cleanup(BaseModel):
     older_than_days: int = 0
     statuses: list[Literal["succeeded", "failed", "cancelled"]] = Field(
@@ -130,6 +137,36 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, *
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
         return {"status": "ok", "version": "0.1.0", "root": str(settings.root.resolve())}
+
+    # --- configuración ---------------------------------------------------------------------
+    @app.get("/api/config")
+    async def get_config() -> dict[str, Any]:
+        return {"file": str(settings.root.resolve() / ".env"), "groups": config_admin.GROUPS,
+                "params": config_admin.describe(settings.root / ".env")}
+
+    @app.put("/api/config")
+    async def put_config(body: ConfigUpdate) -> dict[str, Any]:
+        nonlocal settings
+        errors = {n: e for n, v in body.values.items() if (e := config_admin.validate(n, v or ""))}
+        if errors:
+            raise HTTPException(422, {"errors": errors})
+        changes: dict[str, str | None] = {}
+        for name, value in body.values.items():
+            if config_admin.BY_NAME[name].kind == "secret" and value == "":
+                continue  # un secreto vacío significa «no cambiar»
+            changes[name] = value or None
+        if not changes:
+            return {"changed": [], "restart_required": []}
+        config_admin.write_env_file(settings.root / ".env", changes)
+        for name, value in changes.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        settings = Settings.from_env(settings.root)
+        eng().settings = settings
+        return {"changed": sorted(changes),
+                "restart_required": sorted(n for n in changes if config_admin.BY_NAME[n].restart)}
 
     @app.get("/api/stats")
     async def stats() -> dict[str, Any]:

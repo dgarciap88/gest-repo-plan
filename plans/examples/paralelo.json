@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "name": "paralelo",
+  "description": "Cuatro pasos de 4 s sin dependencias y uno final (comprueba la concurrencia)",
+  "nodes": {
+    "n1": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 4
+        }
+      }
+    },
+    "n2": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 4
+        }
+      }
+    },
+    "n3": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 4
+        }
+      }
+    },
+    "n4": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 4
+        }
+      }
+    },
+    "fin": {
+      "type": "python_script",
+      "join": "all",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 1
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "n1.ok",
+      "to": "fin"
+    },
+    {
+      "from": "n2.ok",
+      "to": "fin"
+    },
+    {
+      "from": "n3.ok",
+      "to": "fin"
+    },
+    {
+      "from": "n4.ok",
+      "to": "fin"
+    }
+  ]
+}

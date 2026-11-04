@@ -271,7 +271,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 
+export interface ConfigParam {
+  name: string
+  group: string
+  label: string
+  kind: 'text' | 'secret' | 'int' | 'float' | 'list' | 'tier' | 'path'
+  restart: boolean
+  example: string
+  secret: boolean
+  value: string
+  effective: string
+  configured: boolean
+  source: 'default' | 'file' | 'env'
+  shadowed: boolean
+}
+
+export interface ConfigView {
+  file: string
+  groups: Record<string, string>
+  params: ConfigParam[]
+}
+
 export const api = {
+  config: () => request<ConfigView>('/config'),
+  saveConfig: (values: Record<string, string | null>) =>
+    request<{ changed: string[]; restart_required: string[] }>('/config', {
+      method: 'PUT',
+      body: JSON.stringify({ values }),
+    }),
   stats: () => request<Stats>('/stats'),
   runs: (params: { status?: string; q?: string } = {}) => {
     const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][])

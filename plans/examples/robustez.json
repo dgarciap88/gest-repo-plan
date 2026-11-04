@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "name": "robustez",
+  "description": "Tres pasos lentos encadenados, para probar caídas, cancelaciones y timeouts (solo local)",
+  "inputs": {
+    "seconds": {
+      "type": "integer",
+      "default": 20,
+      "description": "Duración del primer paso"
+    }
+  },
+  "nodes": {
+    "a": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": "${inputs.seconds}"
+        }
+      }
+    },
+    "b": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 3
+        }
+      }
+    },
+    "c": {
+      "type": "python_script",
+      "config": {
+        "script": "slow_step",
+        "inputs": {
+          "seconds": 1
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "a.ok",
+      "to": "b"
+    },
+    {
+      "from": "b.ok",
+      "to": "c"
+    }
+  ]
+}

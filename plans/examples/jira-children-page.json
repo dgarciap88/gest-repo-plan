@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "name": "jira-children-page",
+  "description": "Crea una página de Confluence con la macro Jira que lista, en vivo, los tickets que tienen otro ticket como padre",
+  "inputs": {
+    "space": { "type": "string", "required": true, "description": "Clave del espacio de Confluence" },
+    "title": { "type": "string", "required": true, "description": "Título de la página" },
+    "jql": { "type": "string", "default": "parent is not EMPTY ORDER BY key", "description": "Consulta JQL que muestra la macro" },
+    "parent_id": { "type": "string", "default": "", "description": "Id de la página padre (opcional)" }
+  },
+  "settings": { "language": "es", "display_inputs": ["title"] },
+  "nodes": {
+    "approval": {
+      "type": "manual_approval",
+      "config": { "approves": ["page"], "message": "Se creará la página en Confluence con la macro Jira" }
+    },
+    "page": {
+      "type": "confluence.create_page",
+      "config": {
+        "space": "${inputs.space}",
+        "title": "${inputs.title}",
+        "parent_id": "${inputs.parent_id}",
+        "blocks": [
+          { "type": "heading", "level": 1, "text": "Tickets con ticket padre" },
+          { "type": "paragraph", "text": "Consulta: ${inputs.jql}" },
+          {
+            "type": "macro",
+            "name": "jira",
+            "params": {
+              "server": "System Jira",
+              "jqlQuery": "${inputs.jql}",
+              "columns": "key,summary,type,status,assignee",
+              "maximumIssues": 50
+            }
+          }
+        ]
+      }
+    }
+  },
+  "edges": [{ "from": "approval.approved", "to": "page" }]
+}

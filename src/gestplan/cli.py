@@ -8,6 +8,7 @@ import dataclasses
 import getpass
 import json
 import sys
+import time
 from pathlib import Path
 
 from gestplan.catalog import build_catalog, render_markdown
@@ -18,6 +19,7 @@ from gestplan.engine.engine import Engine, PlanInvalid
 from gestplan.plans.issues import Issue
 from gestplan.plans.loader import find_plan_file, load_plan
 from gestplan.plans.validator import validate_plan
+from gestplan.server.lock import holder
 from gestplan.settings import Settings
 
 STATUS_MARK = {
@@ -188,6 +190,31 @@ def _drive(engine: Engine, store: Store, run_id: str) -> int:
     return {"succeeded": 0, "waiting": 3, "failed": 1, "cancelled": 1}.get(status, 1)
 
 
+def _follow(store: Store, run_id: str) -> int:
+    """Con un servidor en marcha es él quien ejecuta: la CLI solo espera y muestra el resultado."""
+    quiet = 0
+    try:
+        time.sleep(1.5)  # margen para que el servidor recoja el run o la reactivación
+        while quiet < 3:
+            run = store.get_run(run_id)
+            busy = run is None or run["status"] in ("queued", "running")
+            quiet = 0 if busy else quiet + 1
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\nSigue ejecutándose en el servidor.")
+        return 130
+    print(render_run(store, run_id))
+    status = (store.get_run(run_id) or {}).get("status", "")
+    return {"succeeded": 0, "waiting": 3, "failed": 1, "cancelled": 1}.get(status, 1)
+
+
+def _server_running(settings: Settings) -> bool:
+    info = holder(settings.data_dir)
+    if info:
+        print(f"Hay un servidor en marcha (pid {info['pid']}): él ejecuta los runs; la CLI solo espera el resultado.")
+    return bool(info)
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     settings, store, engine = _open(args)
     path = _resolve_plan_path(settings, args.plan)
@@ -204,14 +231,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _print_issues(exc.issues)
         return 1
     print(f"Run creado: {run_id}")
+    if _server_running(settings):
+        return _follow(store, run_id)
     return _drive(engine, store, run_id)
 
 
 def _cmd_resume(args: argparse.Namespace) -> int:
-    _settings_, store, engine = _open(args)
+    settings, store, engine = _open(args)
     if store.get_run(args.run_id) is None:
         print(f"No existe el run {args.run_id}")
         return 2
+    if _server_running(settings):
+        return _follow(store, args.run_id)  # recover() solo se hace en el motor dueño: marcaría como caídos nodos vivos
     recovered = engine.recover()
     if recovered:
         print(f"{recovered} nodo(s) interrumpido(s) por una caída; usa 'gestplan retry' para reactivarlos.")
@@ -347,6 +378,10 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print("Faltan las dependencias del servidor: pip install -e \".[api]\"")
         return 2
     settings = _settings(args)
+    info = holder(settings.data_dir)
+    if info:
+        print(f"Ya hay un servidor en marcha sobre estos datos (pid {info['pid']}). Páralo antes de arrancar otro.")
+        return 2
     print(f"gestplan en http://{args.host}:{args.port}  (raíz: {settings.root.resolve()})")
     uvicorn.run(create_app(settings), host=args.host, port=args.port, log_level="warning")
     return 0

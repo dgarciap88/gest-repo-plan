@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote
 
-from gestplan.atlassian import basic_auth, render_storage
+from gestplan.atlassian import basic_auth, blocks_to_markdown, render_storage, storage_to_blocks
 from gestplan.executors.base import ExecContext, NodeExecutor, Outcome
 
 
@@ -24,23 +24,8 @@ class ConfluenceCreatePageExec(NodeExecutor):
 
     async def preview(self, ctx: ExecContext) -> dict[str, Any] | None:
         blocks = ctx.config["blocks"]
-        lines = []
-        for block in blocks if isinstance(blocks, list) else []:
-            kind = block["type"]
-            if kind == "heading":
-                lines.append("#" * block.get("level", 2) + " " + block["text"])
-            elif kind == "paragraph":
-                lines.append(block["text"])
-            elif kind == "list":
-                lines.extend(f"- {item}" for item in block["items"])
-            elif kind == "table":
-                lines.append("| " + " | ".join(block["columns"]) + " |")
-                lines.extend("| " + " | ".join(str(c) for c in row) + " |" for row in block["rows"])
-            elif kind == "code":
-                lines.append(f"```{block.get('language', '')}\n{block['text']}\n```")
-            lines.append("")
-        return {"kind": "markdown", "title": f"Página «{ctx.config['title']}» en {ctx.config['space']}",
-                "text": "\n".join(lines)}
+        text = blocks_to_markdown(blocks if isinstance(blocks, list) else [])
+        return {"kind": "markdown", "title": f"Página «{ctx.config['title']}» en {ctx.config['space']}", "text": text}
 
     async def run(self, ctx: ExecContext) -> Outcome:
         cfg = ctx.settings
@@ -125,3 +110,44 @@ class ConfluenceUpdatePageExec(ConfluenceCreatePageExec):
         result = updated.json()
         return Outcome("ok", {"page_id": str(result["id"]), "title": title, "version": version + 1,
                               "url": self._url(cfg.confluence_base_url, result)})
+
+
+class ConfluenceGetPageExec(NodeExecutor):
+    type = "confluence.get_page"
+
+    async def run(self, ctx: ExecContext) -> Outcome:
+        cfg = ctx.settings
+        if not (cfg.confluence_base_url and cfg.confluence_email and cfg.confluence_token):
+            return Outcome("failed", error="faltan CONFLUENCE_BASE_URL, el correo o el token en el .env")
+        headers = {"Authorization": basic_auth(cfg.confluence_email, cfg.confluence_token)}
+        base = f"{cfg.confluence_base_url}/rest/api/content"
+        expand = "expand=body.storage,version,space,ancestors"
+        timeout = min(ctx.engine.node_timeout(ctx.run, ctx.node_id) or 60, 60)
+        page_id = str(ctx.config.get("page_id") or "")
+        if page_id:
+            result = await ctx.http("GET", f"{base}/{quote(page_id)}?{expand}", headers=headers, timeout_s=timeout)
+        else:
+            query = f"spaceKey={quote(ctx.config['space'])}&title={quote(ctx.config['title'])}&{expand}"
+            result = await ctx.http("GET", f"{base}?{query}", headers=headers, timeout_s=timeout)
+        if result.status == 404:
+            return Outcome("not_found", error="la página no existe o no hay permiso")
+        if not result.ok:
+            return Outcome("failed", error=f"Confluence respondió {result.status}: {result.text[:300]}")
+        page = result.json()
+        if not page_id:
+            results = page.get("results", [])
+            if not results:
+                return Outcome("not_found", error=f"no hay una página '{ctx.config['title']}' en {ctx.config['space']}")
+            page = results[0]
+        blocks, unsupported = storage_to_blocks(((page.get("body") or {}).get("storage") or {}).get("value", ""))
+        ancestors = page.get("ancestors") or []
+        outputs = {
+            "page_id": str(page["id"]), "title": page["title"], "space": (page.get("space") or {}).get("key", ""),
+            "parent_id": str(ancestors[-1]["id"]) if ancestors else "", "version": int(page["version"]["number"]),
+            "url": ConfluenceCreatePageExec._url(cfg.confluence_base_url, page), "blocks": blocks,
+            "text": blocks_to_markdown(blocks), "lossless": not unsupported, "unsupported": unsupported,
+        }
+        if unsupported and ctx.config.get("strict"):
+            return Outcome("lossy", outputs, error="la página tiene contenido que no se puede representar: "
+                           + "; ".join(unsupported))
+        return Outcome("ok", outputs)
